@@ -79,4 +79,148 @@ void main() {
     expect(sequence.map((step) => step.measurementType), ['REPS', 'REPS']);
     expect(sequence.map((step) => step.reps), [12, 60]);
   });
+
+  test('runner advances from reps exercise to recovery', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Squat',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 12,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Rest',
+            stepType: 'BREAK',
+            measurementType: 'TIME',
+            durationSeconds: 30,
+            sortOrder: 1,
+          ),
+        ]),
+      ),
+    );
+    addTearDown(runner.dispose);
+
+    expect(runner.currentStep?.isTimed, isFalse);
+    runner.completeStep();
+
+    expect(runner.currentStep?.name, 'Rest');
+    expect(runner.currentStep?.isBreak, isTrue);
+    expect(runner.remainingTime, 30);
+  });
+
+  test('runner advances from recovery to next exercise when timer ends', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Rest',
+            stepType: 'BREAK',
+            measurementType: 'TIME',
+            durationSeconds: 1,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Push up',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 10,
+            sortOrder: 1,
+          ),
+        ]),
+      ),
+    );
+    addTearDown(runner.dispose);
+
+    runner.tickOneSecond();
+
+    expect(runner.currentStep?.name, 'Push up');
+    expect(runner.currentStep?.isTimed, isFalse);
+  });
+
+  test('runner completes on the last step', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Plank',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 1,
+            sortOrder: 0,
+          ),
+        ]),
+      ),
+    );
+    addTearDown(runner.dispose);
+
+    runner.completeStep();
+
+    expect(runner.isFinished, isTrue);
+  });
+
+  test('runner distinguishes reps steps from timed steps', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Lunge',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 8,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Hold',
+            stepType: 'ACTIVE',
+            measurementType: 'TIME',
+            durationSeconds: 2,
+            sortOrder: 1,
+          ),
+        ]),
+      ),
+    );
+    addTearDown(runner.dispose);
+
+    runner.tickOneSecond();
+    expect(runner.currentStep?.name, 'Lunge');
+    expect(runner.remainingTime, 0);
+
+    runner.completeStep();
+    expect(runner.currentStep?.name, 'Hold');
+    expect(runner.remainingTime, 2);
+
+    runner.tickOneSecond();
+    expect(runner.remainingTime, 1);
+  });
+}
+
+WorkoutTemplateResponse _template(List<WorkoutStepDto> steps) {
+  return WorkoutTemplateResponse(
+    id: 42,
+    name: 'Runner test',
+    active: true,
+    exercises: const [],
+    steps: steps,
+  );
+}
+
+WorkoutRunResponse _runFor(WorkoutTemplateResponse template) {
+  final steps = flattenWorkoutTemplate(template);
+  return WorkoutRunResponse(
+    id: 7,
+    templateId: template.id,
+    status: 'IN_PROGRESS',
+    elapsedSeconds: 0,
+    currentStepIndex: 0,
+    currentBlockIndex: 0,
+    currentLap: 1,
+    totalSteps: steps.length,
+    remainingSteps: steps.length,
+    template: template,
+    createdAt: '2026-01-01T00:00:00',
+    updatedAt: '2026-01-01T00:00:00',
+  );
 }

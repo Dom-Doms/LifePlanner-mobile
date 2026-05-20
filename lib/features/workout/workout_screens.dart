@@ -1115,6 +1115,15 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                             textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
+                          if (step?.description?.isNotEmpty == true) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              step!.description!,
+                              textAlign: TextAlign.center,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           SizedBox(
                             width: 180,
@@ -1122,12 +1131,23 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
-                                CircularProgressIndicator(
-                                  value: step?.isTimed == true
-                                      ? runner.progress
-                                      : null,
-                                  strokeWidth: 10,
-                                ),
+                                if (step?.isTimed == true)
+                                  CircularProgressIndicator(
+                                    value: runner.progress,
+                                    strokeWidth: 10,
+                                  )
+                                else
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.outlineVariant,
+                                        width: 10,
+                                      ),
+                                    ),
+                                  ),
                                 Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -1141,9 +1161,12 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                                         context,
                                       ).textTheme.titleLarge,
                                     ),
-                                    Text(
-                                      'Totale ${dates.compactDuration(runner.elapsedSeconds)}',
-                                    ),
+                                    if (step?.isTimed == true)
+                                      Text(
+                                        'Totale ${dates.compactDuration(runner.elapsedSeconds)}',
+                                      )
+                                    else
+                                      const Text('Avanza quando hai finito'),
                                   ],
                                 ),
                               ],
@@ -1169,16 +1192,21 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                           icon: const Icon(Icons.skip_previous),
                           label: const Text('Indietro'),
                         ),
-                        FilledButton.icon(
-                          onPressed: _busy ? null : _togglePause,
-                          icon: Icon(
-                            runner.isPaused ? Icons.play_arrow : Icons.pause,
+                        if (step?.isTimed == true)
+                          FilledButton.icon(
+                            onPressed: _busy ? null : _togglePause,
+                            icon: Icon(
+                              runner.isPaused ? Icons.play_arrow : Icons.pause,
+                            ),
+                            label: Text(runner.isPaused ? 'Riprendi' : 'Pausa'),
                           ),
-                          label: Text(runner.isPaused ? 'Riprendi' : 'Pausa'),
-                        ),
                         FilledButton.tonalIcon(
                           onPressed: _busy ? null : _completeStep,
-                          icon: const Icon(Icons.skip_next),
+                          icon: Icon(
+                            step?.isTimed == true
+                                ? Icons.skip_next
+                                : Icons.check,
+                          ),
                           label: Text(
                             step?.isTimed == true ? 'Skip' : 'Completato',
                           ),

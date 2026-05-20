@@ -180,6 +180,9 @@ class WorkoutRunnerController extends ChangeNotifier {
 
   void completeStep() => next();
 
+  @visibleForTesting
+  void tickOneSecond() => _handleTick();
+
   void completeLocal() {
     if (isFinished) return;
     isFinished = true;
@@ -203,19 +206,21 @@ class WorkoutRunnerController extends ChangeNotifier {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (isPaused || isFinished || currentStep == null) return;
-      elapsedSeconds += 1;
-      final step = currentStep!;
-      if (step.isTimed) {
-        remainingTime = (remainingTime - 1).clamp(0, 999999);
-        if (remainingTime <= 0) {
-          onTimedStepComplete?.call(step);
-          next();
-        }
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _handleTick());
+  }
+
+  void _handleTick() {
+    if (isPaused || isFinished || currentStep == null) return;
+    elapsedSeconds += 1;
+    final step = currentStep!;
+    if (step.isTimed) {
+      remainingTime = (remainingTime - 1).clamp(0, 999999);
+      if (remainingTime <= 0) {
+        onTimedStepComplete?.call(step);
+        next();
       }
-      notifyListeners();
-    });
+    }
+    notifyListeners();
   }
 
   int? _readRemainingTime(String? raw) {
