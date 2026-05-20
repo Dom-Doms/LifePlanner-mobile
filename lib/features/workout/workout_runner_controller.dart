@@ -303,11 +303,17 @@ List<WorkoutStepDto> _legacyExercisesToSteps(WorkoutTemplateResponse template) {
           description: entry.value.notes,
           stepType: 'ACTIVE',
           measurementType: 'REPS',
-          reps: int.tryParse(entry.value.reps ?? '') ?? 1,
+          reps: parseLegacyReps(entry.value.reps),
           sortOrder: entry.key,
           intensity: entry.value.muscleGroup,
           active: true,
         ),
       )
       .toList();
+}
+
+int parseLegacyReps(String? reps) {
+  final match = RegExp(r'^\s*(\d+)').firstMatch(reps ?? '');
+  if (match == null) return 1;
+  return int.tryParse(match.group(1) ?? '') ?? 1;
 }

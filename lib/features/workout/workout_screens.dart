@@ -106,7 +106,10 @@ class _WorkoutsListScreenState extends State<WorkoutsListScreen> {
           onTap: () async {
             await Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => WorkoutDetailScreen(templateId: template.id),
+                builder: (_) => WorkoutDetailScreen(
+                  templateId: template.id,
+                  initialTemplate: template,
+                ),
               ),
             );
             await _load();
@@ -163,12 +166,14 @@ class WorkoutDetailScreen extends StatefulWidget {
     required this.templateId,
     this.workoutSessionId,
     this.eventDate,
+    this.initialTemplate,
     super.key,
   });
 
   final int templateId;
   final int? workoutSessionId;
   final String? eventDate;
+  final WorkoutTemplateResponse? initialTemplate;
 
   @override
   State<WorkoutDetailScreen> createState() => _WorkoutDetailScreenState();
@@ -185,6 +190,10 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialTemplate != null) {
+      _template = widget.initialTemplate;
+      _loading = false;
+    }
     _load();
   }
 
@@ -273,6 +282,8 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
                   Text(
                     'Sequenza',
                     style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 8),
                   ...flattenWorkoutTemplate(template).map(_stepTile),
@@ -325,10 +336,14 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (_template == null) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    } else {
+      setState(() => _error = null);
+    }
     try {
       final template = await AppScope.of(
         context,
@@ -528,33 +543,40 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: SectionCard(
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              step.stepType == 'BREAK' ? Icons.timer : Icons.fitness_center,
-            ),
-            title: Text(step.name),
-            subtitle: Text(_stepMeta(step)),
-            trailing: Wrap(
-              children: [
-                IconButton(
-                  onPressed: () => _moveItem(position, -1),
-                  icon: const Icon(Icons.arrow_upward),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  step.stepType == 'BREAK' ? Icons.timer : Icons.fitness_center,
                 ),
-                IconButton(
-                  onPressed: () => _moveItem(position, 1),
-                  icon: const Icon(Icons.arrow_downward),
-                ),
-                IconButton(
-                  onPressed: () => _editTopStep(step),
-                  icon: const Icon(Icons.edit),
-                ),
-                IconButton(
-                  onPressed: () => _removeTopStep(step),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ],
-            ),
+                title: Text(step.name),
+                subtitle: Text(_stepMeta(step)),
+              ),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: [
+                  IconButton(
+                    onPressed: () => _moveItem(position, -1),
+                    icon: const Icon(Icons.arrow_upward),
+                  ),
+                  IconButton(
+                    onPressed: () => _moveItem(position, 1),
+                    icon: const Icon(Icons.arrow_downward),
+                  ),
+                  IconButton(
+                    onPressed: () => _editTopStep(step),
+                    icon: const Icon(Icons.edit),
+                  ),
+                  IconButton(
+                    onPressed: () => _removeTopStep(step),
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       );
@@ -566,14 +588,22 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 const Icon(Icons.repeat),
-                const SizedBox(width: 8),
-                Expanded(
+                ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minWidth: 120,
+                    maxWidth: 240,
+                  ),
                   child: Text(
-                    '${block.title} · ${block.repeatCount} giri',
+                    '${block.title} - ${block.repeatCount} giri',
                     style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 IconButton(
@@ -637,6 +667,27 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
         _topSteps = [...template.steps];
         _blocks = [...template.blocks];
         _legacyExercises = [...template.exercises];
+        if (_topSteps.isEmpty &&
+            _blocks.isEmpty &&
+            _legacyExercises.isNotEmpty) {
+          _topSteps = _legacyExercises
+              .asMap()
+              .entries
+              .map(
+                (entry) => WorkoutStepDto(
+                  id: entry.value.id,
+                  name: entry.value.name,
+                  description: entry.value.notes,
+                  stepType: 'ACTIVE',
+                  measurementType: 'REPS',
+                  reps: parseLegacyReps(entry.value.reps),
+                  sortOrder: entry.key,
+                  intensity: entry.value.muscleGroup,
+                  active: true,
+                ),
+              )
+              .toList();
+        }
       });
     } on ApiException catch (error) {
       setState(() => _error = error.message);
@@ -1038,7 +1089,15 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Workout run')),
       body: _loading || runner == null
-          ? const LoadingView(label: 'Carico runner')
+          ? _loading
+                ? const LoadingView(label: 'Carico runner')
+                : Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: ErrorPanel(
+                      message: _error ?? 'Runner non disponibile.',
+                      onRetry: _load,
+                    ),
+                  )
           : AnimatedBuilder(
               animation: runner,
               builder: (context, _) {

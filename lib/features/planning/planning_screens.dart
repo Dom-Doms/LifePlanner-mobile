@@ -6,6 +6,7 @@ import '../../core/utils/date_utils.dart' as dates;
 import '../../data/models/planning_models.dart';
 import '../../data/models/workout_models.dart';
 import '../../shared/widgets/app_cards.dart';
+import '../workout/workout_runner_controller.dart';
 import '../workout/workout_screens.dart';
 import 'event_form_sheet.dart';
 
@@ -38,6 +39,7 @@ class _DayScreenState extends State<DayScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const LoadingView(label: 'Carico la giornata');
+    final workoutCards = _visibleWorkoutCards();
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -110,18 +112,17 @@ class _DayScreenState extends State<DayScreen> {
             ..._events.map(_eventCard),
           const SizedBox(height: 16),
           Text(
-            'Allenamenti del giorno',
+            'Dettaglio allenamento',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
-          if (_sessions.isEmpty)
+          if (workoutCards.isEmpty)
             const EmptyState(
-              title: 'Nessuna sessione',
-              subtitle:
-                  'Le sessioni collegate agli eventi workout compariranno qui.',
+              title: 'Nessun allenamento',
+              subtitle: 'Gli eventi workout collegati compariranno qui.',
             )
           else
-            ..._sessions.map(_sessionCard),
+            ...workoutCards.map(_workoutCard),
         ],
       ),
     );
@@ -165,7 +166,9 @@ class _DayScreenState extends State<DayScreen> {
               Text(event.description!),
             ],
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
               children: [
                 if (event.canEdit ?? true)
                   TextButton.icon(
@@ -197,25 +200,106 @@ class _DayScreenState extends State<DayScreen> {
     );
   }
 
-  Widget _sessionCard(WorkoutSessionResponse session) {
+  Widget _workoutCard(_DayWorkoutCard card) {
+    final title = card.template?.name ?? card.session.title;
+    final stepCount = card.template == null
+        ? card.session.exercises.length
+        : flattenWorkoutTemplate(card.template!).length;
+    final duration = card.template == null
+        ? null
+        : dates.compactDuration(card.template!.estimatedDurationSeconds);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: SectionCard(
-        child: ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.fitness_center),
-          title: Text(session.title),
-          subtitle: Text('${session.exercises.length} esercizi legacy'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: session.templateId == null
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: card.templateId == null
               ? null
               : () => _openWorkoutDetail(
-                  session.templateId!,
-                  workoutSessionId: session.id,
+                  card.templateId!,
+                  workoutSessionId: card.session.id,
+                  initialTemplate: card.template,
                 ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.fitness_center),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      card.session.participants
+                              .map((item) => item.displayName)
+                              .where((item) => item.isNotEmpty)
+                              .join(', ')
+                              .ifBlank(card.template?.description ?? '') ??
+                          '',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        if (card.event.completed == true)
+                          const Chip(
+                            visualDensity: VisualDensity.compact,
+                            label: Text('Completato'),
+                          ),
+                        Chip(
+                          visualDensity: VisualDensity.compact,
+                          label: Text('$stepCount esercizi'),
+                        ),
+                        if (duration != null)
+                          Chip(
+                            visualDensity: VisualDensity.compact,
+                            label: Text(duration),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  List<_DayWorkoutCard> _visibleWorkoutCards() {
+    final sessionsById = {for (final session in _sessions) session.id: session};
+    final cards = <_DayWorkoutCard>[];
+    for (final event in _events) {
+      if (event.type != 'WORKOUT' || event.workoutSessionId == null) continue;
+      final session = sessionsById[event.workoutSessionId];
+      if (session == null) continue;
+      final templateId = event.workoutTemplateId ?? session.templateId;
+      cards.add(
+        _DayWorkoutCard(
+          event: event,
+          session: session,
+          templateId: templateId,
+          template: _findTemplate(templateId),
+        ),
+      );
+    }
+    return cards;
+  }
+
+  WorkoutTemplateResponse? _findTemplate(int? templateId) {
+    if (templateId == null) return null;
+    for (final template in _templates) {
+      if (template.id == templateId) return template;
+    }
+    return null;
   }
 
   Future<void> _load() async {
@@ -305,19 +389,8 @@ class _DayScreenState extends State<DayScreen> {
       builder: (_) => EventFormSheet(
         date: _date,
         templates: _templates,
-        initial:
-            initial ??
-            (type == null
-                ? null
-                : CalendarEventResponse(
-                    id: 0,
-                    title: '',
-                    eventDate: dates.formatDate(_date),
-                    allDay: type == 'WORKOUT',
-                    type: type,
-                    reminderEnabled: false,
-                    participants: const [],
-                  )),
+        initial: initial,
+        initialType: type,
       ),
     );
     if (result == true) await _load();
@@ -328,13 +401,18 @@ class _DayScreenState extends State<DayScreen> {
     await _load();
   }
 
-  void _openWorkoutDetail(int templateId, {int? workoutSessionId}) {
+  void _openWorkoutDetail(
+    int templateId, {
+    int? workoutSessionId,
+    WorkoutTemplateResponse? initialTemplate,
+  }) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => WorkoutDetailScreen(
           templateId: templateId,
           workoutSessionId: workoutSessionId,
           eventDate: dates.formatDate(_date),
+          initialTemplate: initialTemplate,
         ),
       ),
     );
@@ -548,7 +626,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         context,
       ).push(MaterialPageRoute(builder: (_) => DayScreen(initialDate: day))),
       child: Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
@@ -560,27 +638,34 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35)
               : Theme.of(context).colorScheme.surface,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            Text(
-              '${day.day}',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: muted ? Theme.of(context).colorScheme.outline : null,
+            Align(
+              alignment: Alignment.topLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '${day.day}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: muted ? Theme.of(context).colorScheme.outline : null,
+                  ),
+                ),
               ),
             ),
-            const Spacer(),
-            Wrap(
-              spacing: 3,
-              runSpacing: 3,
-              children: [
-                if (events.isNotEmpty)
-                  _dot(Theme.of(context).colorScheme.primary),
-                if (sessions.isNotEmpty)
-                  _dot(Theme.of(context).colorScheme.tertiary),
-                if (completed) _dot(Colors.green),
-              ],
+            Align(
+              alignment: Alignment.bottomLeft,
+              child: Wrap(
+                spacing: 2,
+                runSpacing: 2,
+                children: [
+                  if (events.isNotEmpty)
+                    _dot(Theme.of(context).colorScheme.primary),
+                  if (sessions.isNotEmpty)
+                    _dot(Theme.of(context).colorScheme.tertiary),
+                  if (completed) _dot(Colors.green),
+                ],
+              ),
             ),
           ],
         ),
@@ -589,8 +674,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Widget _dot(Color color) => Container(
-    width: 7,
-    height: 7,
+    width: 5,
+    height: 5,
     decoration: BoxDecoration(color: color, shape: BoxShape.circle),
   );
 
@@ -683,4 +768,22 @@ class _ContextCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DayWorkoutCard {
+  const _DayWorkoutCard({
+    required this.event,
+    required this.session,
+    required this.templateId,
+    required this.template,
+  });
+
+  final CalendarEventResponse event;
+  final WorkoutSessionResponse session;
+  final int? templateId;
+  final WorkoutTemplateResponse? template;
+}
+
+extension _BlankString on String {
+  String? ifBlank(String fallback) => trim().isEmpty ? fallback : this;
 }

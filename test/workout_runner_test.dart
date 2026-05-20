@@ -56,4 +56,27 @@ void main() {
     expect(sequence.last.lap, 2);
     expect(sequence.last.totalLaps, 2);
   });
+
+  test('flattenWorkoutTemplate falls back to legacy exercises', () {
+    const template = WorkoutTemplateResponse(
+      id: 2,
+      name: 'Legacy',
+      active: true,
+      exercises: [
+        WorkoutExerciseDto(id: 10, name: 'Squat', reps: '12', exerciseOrder: 0),
+        WorkoutExerciseDto(
+          id: 11,
+          name: 'Plank',
+          reps: '60 sec',
+          exerciseOrder: 1,
+        ),
+      ],
+    );
+
+    final sequence = flattenWorkoutTemplate(template);
+
+    expect(sequence.map((step) => step.name), ['Squat', 'Plank']);
+    expect(sequence.map((step) => step.measurementType), ['REPS', 'REPS']);
+    expect(sequence.map((step) => step.reps), [12, 60]);
+  });
 }

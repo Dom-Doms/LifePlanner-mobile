@@ -13,12 +13,14 @@ class EventFormSheet extends StatefulWidget {
     required this.date,
     required this.templates,
     this.initial,
+    this.initialType,
     super.key,
   });
 
   final DateTime date;
   final List<WorkoutTemplateResponse> templates;
   final CalendarEventResponse? initial;
+  final String? initialType;
 
   @override
   State<EventFormSheet> createState() => _EventFormSheetState();
@@ -55,7 +57,7 @@ class _EventFormSheetState extends State<EventFormSheet> {
     _endTime = TextEditingController(text: (event?.endTime ?? '').take(5));
     _freeParticipant = TextEditingController();
     _userSearch = TextEditingController();
-    _type = event?.type ?? 'PERSONAL';
+    _type = event?.type ?? widget.initialType ?? 'PERSONAL';
     _allDay = event?.allDay ?? false;
     _reminderEnabled = event?.reminderEnabled ?? false;
     _reminderMinutes = event?.reminderMinutesBefore ?? 30;
@@ -105,7 +107,11 @@ class _EventFormSheetState extends State<EventFormSheet> {
             ),
             const SizedBox(height: 16),
             Text(
-              widget.initial == null ? 'Nuovo evento' : 'Modifica evento',
+              widget.initial == null
+                  ? (_type == 'WORKOUT'
+                        ? 'Aggiungi allenamento'
+                        : 'Nuovo evento')
+                  : 'Modifica evento',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
