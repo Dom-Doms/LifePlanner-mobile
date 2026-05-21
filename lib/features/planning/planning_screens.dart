@@ -43,7 +43,7 @@ class _DayScreenState extends State<DayScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const LoadingView(label: 'Carico la giornata');
+    if (_loading) return _loadingView(context);
     final workoutCards = _visibleWorkoutCards();
     final workoutInvites = _workoutInvitesNeedingLink();
     return RefreshIndicator(
@@ -128,6 +128,30 @@ class _DayScreenState extends State<DayScreen> {
             ...workoutCards.map(_workoutCard),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _loadingView(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Carico giornata...',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
