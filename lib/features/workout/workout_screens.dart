@@ -1600,88 +1600,15 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                                     ),
                                   ),
                                 ],
-                                const SizedBox(height: 12),
-                                SizedBox(
-                                  width: 220,
-                                  height: 220,
-                                  child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      if (step?.isTimed == true)
-                                        CircularProgressIndicator(
-                                          value: runner.progress,
-                                          strokeWidth: 14,
-                                        )
-                                      else
-                                        Container(
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.28,
-                                              ),
-                                              width: 12,
-                                            ),
-                                          ),
-                                        ),
-                                      Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            step?.isTimed == true
-                                                ? dates.compactDuration(
-                                                    runner.remainingTime,
-                                                  )
-                                                : 'x${step?.reps ?? 0}',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .displaySmall
-                                                ?.copyWith(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.w800,
-                                                ),
-                                          ),
-                                          if (step?.isTimed == true)
-                                            Text(
-                                              'Totale ${dates.compactDuration(runner.elapsedSeconds)}',
-                                              style: TextStyle(
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.72,
-                                                ),
-                                              ),
-                                            )
-                                          else
-                                            Text(
-                                              'Avanza quando hai finito',
-                                              style: TextStyle(
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.72,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                const SizedBox(height: 10),
+                                _RunnerProgressRing(runner: runner, step: step),
                                 if (step?.blockTitle != null)
                                   Text(
                                     '${step!.blockTitle} · giro ${step.lap}/${step.totalLaps}',
                                   ),
-                                if (runner.nextStep != null)
-                                  Text(
-                                    'Prossimo: ${runner.nextStep!.name}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.78,
-                                      ),
-                                    ),
-                                  ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${runner.completedSteps} / ${runner.sequence.length} step - ${math.max(0, runner.sequence.length - runner.currentIndex - 1)} mancanti',
+                                  '${math.min(runner.currentIndex + 1, runner.sequence.length)} / ${runner.sequence.length} step',
                                   style: TextStyle(
                                     color: Colors.white.withValues(alpha: 0.70),
                                   ),
@@ -1724,7 +1651,10 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
           children: [
             Text('Sequenza', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
-            _runnerSequenceList(runner),
+            AnimatedBuilder(
+              animation: runner,
+              builder: (context, _) => _runnerSequenceList(runner),
+            ),
           ],
         ),
       ),
@@ -1997,6 +1927,109 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
   }
 }
 
+class _RunnerProgressRing extends StatelessWidget {
+  const _RunnerProgressRing({required this.runner, required this.step});
+
+  final WorkoutRunnerController runner;
+  final ExecutableWorkoutStep? step;
+
+  @override
+  Widget build(BuildContext context) {
+    final timed = step?.isTimed == true;
+    final value = timed ? runner.progress : 1.0;
+    final accent = step?.isBreak == true
+        ? const Color(0xFF38BDF8)
+        : Theme.of(context).colorScheme.primary;
+    return SizedBox.square(
+      dimension: 188,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CustomPaint(
+            size: const Size.square(188),
+            painter: _RunnerProgressPainter(
+              progress: value.clamp(0, 1).toDouble(),
+              accent: accent,
+              active: timed,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(30),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    timed
+                        ? dates.compactDuration(runner.remainingTime)
+                        : 'x${step?.reps ?? 0}',
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  timed ? 'tempo' : 'Avanza quando hai finito',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontSize: timed ? 14 : 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RunnerProgressPainter extends CustomPainter {
+  const _RunnerProgressPainter({
+    required this.progress,
+    required this.accent,
+    required this.active,
+  });
+
+  final double progress;
+  final Color accent;
+  final bool active;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = math.min(size.width, size.height) / 2 - 8;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    final track = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 10
+      ..strokeCap = StrokeCap.round
+      ..color = Colors.white.withValues(alpha: 0.16);
+    final foreground = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = active ? 10 : 7
+      ..strokeCap = StrokeCap.round
+      ..color = active ? accent : accent.withValues(alpha: 0.36);
+
+    canvas.drawCircle(center, radius, track);
+    final sweep = active ? math.pi * 2 * progress : math.pi * 2;
+    if (sweep > 0) {
+      canvas.drawArc(rect, -math.pi / 2, sweep, false, foreground);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RunnerProgressPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.accent != accent ||
+        oldDelegate.active != active;
+  }
+}
+
 class _RunnerControls extends StatelessWidget {
   const _RunnerControls({
     required this.runner,
@@ -2020,37 +2053,31 @@ class _RunnerControls extends StatelessWidget {
     return Column(
       children: [
         Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Expanded(
-              child: FilledButton.tonalIcon(
-                onPressed: busy ? null : onPrevious,
-                icon: const Icon(Icons.skip_previous),
-                label: const Text('Indietro'),
-              ),
+            _RunnerIconAction(
+              icon: Icons.skip_previous,
+              label: 'Indietro',
+              onPressed: busy ? null : onPrevious,
             ),
             if (step?.isTimed == true) ...[
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: busy ? null : onPause,
-                  icon: Icon(runner.isPaused ? Icons.play_arrow : Icons.pause),
-                  label: Text(runner.isPaused ? 'Riprendi' : 'Pausa'),
-                ),
+              const SizedBox(width: 12),
+              _RunnerIconAction(
+                icon: runner.isPaused ? Icons.play_arrow : Icons.pause,
+                label: runner.isPaused ? 'Riprendi' : 'Pausa',
+                onPressed: busy ? null : onPause,
               ),
             ],
-            const SizedBox(width: 8),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: busy ? null : onComplete,
-                icon: Icon(
-                  step?.isTimed == true ? Icons.skip_next : Icons.check,
-                ),
-                label: Text(step?.isTimed == true ? 'Skip' : 'Completato'),
-              ),
+            const SizedBox(width: 12),
+            _RunnerIconAction(
+              icon: step?.isTimed == true ? Icons.skip_next : Icons.check,
+              label: step?.isTimed == true ? 'Skip' : 'Completato',
+              primary: true,
+              onPressed: busy ? null : onComplete,
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         TextButton.icon(
           onPressed: busy ? null : onFinish,
           icon: const Icon(Icons.flag_outlined),
@@ -2058,6 +2085,49 @@ class _RunnerControls extends StatelessWidget {
           style: TextButton.styleFrom(foregroundColor: Colors.white70),
         ),
       ],
+    );
+  }
+}
+
+class _RunnerIconAction extends StatelessWidget {
+  const _RunnerIconAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.primary = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final background = primary
+        ? colors.primary
+        : Colors.white.withValues(alpha: 0.12);
+    final foreground = primary ? colors.onPrimary : Colors.white;
+    return Semantics(
+      button: true,
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: SizedBox.square(
+          dimension: 58,
+          child: IconButton(
+            onPressed: onPressed,
+            icon: Icon(icon, size: 30),
+            color: foreground,
+            style: IconButton.styleFrom(
+              backgroundColor: background,
+              disabledBackgroundColor: Colors.white.withValues(alpha: 0.06),
+              disabledForegroundColor: Colors.white38,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

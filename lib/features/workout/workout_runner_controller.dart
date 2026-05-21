@@ -190,7 +190,11 @@ class WorkoutRunnerController extends ChangeNotifier {
   }..removeWhere((_, value) => value == null);
 
   void hydrateFromServer(WorkoutRunResponse run) {
-    _sequence = flattenWorkoutTemplate(run.template);
+    final flattened = flattenWorkoutTemplate(run.template);
+    if (_hasCompatibleSnapshotOrder(flattened, run.snapshotJson) ||
+        !_hasSameSequenceMembers(_sequence, flattened)) {
+      _sequence = flattened;
+    }
     _hydrate(run);
     notifyListeners();
   }
@@ -349,6 +353,34 @@ class WorkoutRunnerController extends ChangeNotifier {
     } catch (_) {
       return _withDisplayOrder(base);
     }
+  }
+
+  bool _hasCompatibleSnapshotOrder(
+    List<ExecutableWorkoutStep> base,
+    String? raw,
+  ) {
+    if (raw == null || raw.isEmpty || base.length < 2) return false;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return false;
+      final rawOrder = decoded['sequenceOrder'];
+      if (rawOrder is! List || rawOrder.length != base.length) return false;
+      final keys = {for (final step in base) step.sequenceKey};
+      return rawOrder.every((item) => keys.contains(item.toString()));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _hasSameSequenceMembers(
+    List<ExecutableWorkoutStep> current,
+    List<ExecutableWorkoutStep> flattened,
+  ) {
+    if (current.length != flattened.length || current.isEmpty) return false;
+    final currentKeys = current.map((step) => step.sequenceKey).toSet();
+    final flattenedKeys = flattened.map((step) => step.sequenceKey).toSet();
+    return currentKeys.length == flattenedKeys.length &&
+        currentKeys.containsAll(flattenedKeys);
   }
 
   @override

@@ -346,6 +346,149 @@ void main() {
     ]);
   });
 
+  test('runner grouped reorder survives snapshot hydration', () {
+    final template = WorkoutTemplateResponse(
+      id: 44,
+      name: 'Grouped hydrate',
+      active: true,
+      exercises: const [],
+      steps: const [
+        WorkoutStepDto(
+          id: 1,
+          name: 'Warmup',
+          stepType: 'ACTIVE',
+          measurementType: 'REPS',
+          reps: 10,
+          sortOrder: 0,
+        ),
+        WorkoutStepDto(
+          id: 2,
+          name: 'Finisher',
+          stepType: 'ACTIVE',
+          measurementType: 'REPS',
+          reps: 12,
+          sortOrder: 2,
+        ),
+      ],
+      blocks: const [
+        WorkoutBlockDto(
+          title: 'Legs',
+          sortOrder: 1,
+          repeatCount: 1,
+          steps: [
+            WorkoutStepDto(
+              id: 3,
+              name: 'Curl',
+              stepType: 'ACTIVE',
+              measurementType: 'REPS',
+              reps: 10,
+              sortOrder: 0,
+            ),
+          ],
+        ),
+      ],
+    );
+    final runner = WorkoutRunnerController(run: _runFor(template));
+    addTearDown(runner.dispose);
+
+    expect(runner.reorderFutureItem(2, 1), isTrue);
+    final snapshotJson = runner.snapshot()['snapshotJson'] as String;
+    final hydrated = WorkoutRunnerController(
+      run: _runFor(template, snapshotJson: snapshotJson),
+    );
+    addTearDown(hydrated.dispose);
+
+    expect(hydrated.currentStep?.name, 'Warmup');
+    expect(hydrated.sequence.map((step) => step.name), [
+      'Warmup',
+      'Finisher',
+      'Curl',
+    ]);
+  });
+
+  test(
+    'server hydrate without sequence order keeps local reordered sequence',
+    () {
+      final template = _template([
+        const WorkoutStepDto(
+          id: 1,
+          name: 'Squat',
+          stepType: 'ACTIVE',
+          measurementType: 'REPS',
+          reps: 10,
+          sortOrder: 0,
+        ),
+        const WorkoutStepDto(
+          id: 2,
+          name: 'Bench',
+          stepType: 'ACTIVE',
+          measurementType: 'REPS',
+          reps: 8,
+          sortOrder: 1,
+        ),
+        const WorkoutStepDto(
+          id: 3,
+          name: 'Row',
+          stepType: 'ACTIVE',
+          measurementType: 'REPS',
+          reps: 12,
+          sortOrder: 2,
+        ),
+      ]);
+      final runner = WorkoutRunnerController(run: _runFor(template));
+      addTearDown(runner.dispose);
+
+      runner.reorderFutureStep(2, 1);
+      runner.hydrateFromServer(_runFor(template));
+
+      expect(runner.currentStep?.name, 'Squat');
+      expect(runner.sequence.map((step) => step.name), [
+        'Squat',
+        'Row',
+        'Bench',
+      ]);
+    },
+  );
+
+  test('timed completion callback fires for each timed step', () {
+    final completed = <String>[];
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Rest one',
+            stepType: 'BREAK',
+            measurementType: 'TIME',
+            durationSeconds: 1,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Rest two',
+            stepType: 'BREAK',
+            measurementType: 'TIME',
+            durationSeconds: 1,
+            sortOrder: 1,
+          ),
+          const WorkoutStepDto(
+            name: 'Hold',
+            stepType: 'ACTIVE',
+            measurementType: 'TIME',
+            durationSeconds: 1,
+            sortOrder: 2,
+          ),
+        ]),
+      ),
+      onTimedStepComplete: (step) => completed.add(step.name),
+    );
+    addTearDown(runner.dispose);
+
+    runner.tickOneSecond();
+    runner.tickOneSecond();
+    runner.tickOneSecond();
+
+    expect(completed, ['Rest one', 'Rest two', 'Hold']);
+  });
+
   test('builds grouped runner items from flattened sequence', () {
     final sequence = flattenWorkoutTemplate(_groupTemplate());
     final items = buildRunnerSequenceItems(sequence);
