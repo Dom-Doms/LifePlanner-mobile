@@ -52,7 +52,7 @@ class _DayScreenState extends State<DayScreen> {
       RefreshIndicator(
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
           children: [
             Row(
               children: [
@@ -128,7 +128,7 @@ class _DayScreenState extends State<DayScreen> {
   Widget _daySurface(Widget child) {
     return Material(
       color: Theme.of(context).scaffoldBackgroundColor,
-      child: SafeArea(top: false, bottom: false, child: child),
+      child: SafeArea(top: true, bottom: false, child: child),
     );
   }
 

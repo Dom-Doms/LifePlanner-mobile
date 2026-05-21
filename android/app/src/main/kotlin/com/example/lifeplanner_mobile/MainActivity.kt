@@ -19,7 +19,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val notificationChannelName = "lifeplanner_mobile/local_notifications"
     private val storageChannelName = "lifeplanner_mobile/session_storage"
-    private val notificationChannelId = "lifeplanner_workout"
+    private val notificationChannelId = "lifeplanner_workout_v2"
     private val permissionRequestCode = 4907
     private var pendingPermissionResult: MethodChannel.Result? = null
 
@@ -141,10 +141,13 @@ class MainActivity : FlutterActivity() {
         val pattern = longArrayOf(0, 180, 90, 180)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            manager.defaultVibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            val vibrator = manager.defaultVibrator
+            if (!vibrator.hasVibrator()) return
+            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
         } else {
             @Suppress("DEPRECATION")
             val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            if (!vibrator.hasVibrator()) return
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
             } else {

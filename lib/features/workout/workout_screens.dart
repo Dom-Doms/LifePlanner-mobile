@@ -1508,170 +1508,200 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
               animation: runner,
               builder: (context, _) {
                 final step = runner.currentStep;
-                return ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-                  children: [
-                    Row(
-                      children: [
-                        IconButton.filledTonal(
-                          onPressed: _busy ? null : _cancel,
-                          icon: const Icon(Icons.close),
-                          tooltip: 'Annulla',
-                        ),
-                        const Spacer(),
-                        Text(
-                          dates.compactDuration(runner.elapsedSeconds),
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(color: Colors.white),
-                        ),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: _busy
-                              ? null
-                              : () => _showRunnerSequence(runner),
-                          icon: const Icon(Icons.format_list_bulleted),
-                          label: const Text('Lista'),
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
+                return Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF07111F),
+                        Color(0xFF12324A),
+                        Color(0xFF0F172A),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    if (_error != null)
-                      ErrorPanel(message: _error!, onRetry: _load),
-                    SectionCard(
-                      child: Column(
-                        children: [
-                          Text(
-                            step?.name ?? 'Workout completato',
-                            textAlign: TextAlign.center,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                          if (step?.description?.isNotEmpty == true) ...[
-                            const SizedBox(height: 6),
+                  ),
+                  child: SafeArea(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
+                      children: [
+                        Row(
+                          children: [
+                            IconButton.filledTonal(
+                              onPressed: _busy ? null : _cancel,
+                              icon: const Icon(Icons.close),
+                              tooltip: 'Annulla',
+                            ),
+                            const Spacer(),
                             Text(
-                              step!.description!,
-                              textAlign: TextAlign.center,
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
+                              dates.compactDuration(runner.elapsedSeconds),
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(color: Colors.white),
+                            ),
+                            const Spacer(),
+                            TextButton.icon(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _showRunnerSequence(runner),
+                              icon: const Icon(Icons.format_list_bulleted),
+                              label: const Text('Lista'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.white,
+                              ),
                             ),
                           ],
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: 220,
-                            height: 220,
-                            child: Stack(
-                              alignment: Alignment.center,
+                        ),
+                        const SizedBox(height: 12),
+                        if (_error != null)
+                          ErrorPanel(message: _error!, onRetry: _load),
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(28),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.14),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                blurRadius: 28,
+                                offset: const Offset(0, 18),
+                                color: Colors.black.withValues(alpha: 0.22),
+                              ),
+                            ],
+                          ),
+                          child: DefaultTextStyle.merge(
+                            style: const TextStyle(color: Colors.white),
+                            child: Column(
                               children: [
-                                if (step?.isTimed == true)
-                                  CircularProgressIndicator(
-                                    value: runner.progress,
-                                    strokeWidth: 14,
-                                  )
-                                else
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.outlineVariant,
-                                        width: 10,
+                                Text(
+                                  step?.name ?? 'Workout completato',
+                                  textAlign: TextAlign.center,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineMedium
+                                      ?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                ),
+                                if (step?.description?.isNotEmpty == true) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    step!.description!,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.72,
                                       ),
                                     ),
                                   ),
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      step?.isTimed == true
-                                          ? dates.compactDuration(
-                                              runner.remainingTime,
+                                ],
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: 220,
+                                  height: 220,
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      if (step?.isTimed == true)
+                                        CircularProgressIndicator(
+                                          value: runner.progress,
+                                          strokeWidth: 14,
+                                        )
+                                      else
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.28,
+                                              ),
+                                              width: 12,
+                                            ),
+                                          ),
+                                        ),
+                                      Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            step?.isTimed == true
+                                                ? dates.compactDuration(
+                                                    runner.remainingTime,
+                                                  )
+                                                : 'x${step?.reps ?? 0}',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .displaySmall
+                                                ?.copyWith(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                          ),
+                                          if (step?.isTimed == true)
+                                            Text(
+                                              'Totale ${dates.compactDuration(runner.elapsedSeconds)}',
+                                              style: TextStyle(
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.72,
+                                                ),
+                                              ),
                                             )
-                                          : 'x${step?.reps ?? 0}',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.displaySmall,
+                                          else
+                                            Text(
+                                              'Avanza quando hai finito',
+                                              style: TextStyle(
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.72,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (step?.blockTitle != null)
+                                  Text(
+                                    '${step!.blockTitle} · giro ${step.lap}/${step.totalLaps}',
+                                  ),
+                                if (runner.nextStep != null)
+                                  Text(
+                                    'Prossimo: ${runner.nextStep!.name}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.78,
+                                      ),
                                     ),
-                                    if (step?.isTimed == true)
-                                      Text(
-                                        'Totale ${dates.compactDuration(runner.elapsedSeconds)}',
-                                      )
-                                    else
-                                      const Text('Avanza quando hai finito'),
-                                  ],
+                                  ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${runner.completedSteps} / ${runner.sequence.length} step - ${math.max(0, runner.sequence.length - runner.currentIndex - 1)} mancanti',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.70),
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          if (step?.blockTitle != null)
-                            Text(
-                              '${step!.blockTitle} · giro ${step.lap}/${step.totalLaps}',
-                            ),
-                          if (runner.nextStep != null)
-                            Text('Prossimo: ${runner.nextStep!.name}'),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${runner.completedSteps} / ${runner.sequence.length} step - ${math.max(0, runner.sequence.length - runner.currentIndex - 1)} mancanti',
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.center,
-                      children: [
-                        FilledButton.tonalIcon(
-                          onPressed: _busy ? null : _previous,
-                          icon: const Icon(Icons.skip_previous),
-                          label: const Text('Indietro'),
                         ),
-                        if (step?.isTimed == true)
-                          FilledButton.icon(
-                            onPressed: _busy ? null : _togglePause,
-                            icon: Icon(
-                              runner.isPaused ? Icons.play_arrow : Icons.pause,
-                            ),
-                            label: Text(runner.isPaused ? 'Riprendi' : 'Pausa'),
-                          ),
-                        FilledButton.tonalIcon(
-                          onPressed: _busy ? null : _completeStep,
-                          icon: Icon(
-                            step?.isTimed == true
-                                ? Icons.skip_next
-                                : Icons.check,
-                          ),
-                          label: Text(
-                            step?.isTimed == true ? 'Skip' : 'Completato',
-                          ),
-                        ),
-                        FilledButton.icon(
-                          onPressed: _busy ? null : _finish,
-                          icon: const Icon(Icons.flag),
-                          label: const Text('Fine'),
-                        ),
-                        TextButton.icon(
-                          onPressed: _busy ? null : _cancel,
-                          icon: const Icon(Icons.close),
-                          label: const Text('Annulla'),
+                        const SizedBox(height: 12),
+                        _RunnerControls(
+                          runner: runner,
+                          busy: _busy,
+                          onPrevious: _previous,
+                          onPause: _togglePause,
+                          onComplete: _completeStep,
+                          onFinish: _finish,
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Sequenza',
-                      style: Theme.of(
-                        context,
-                      ).textTheme.titleMedium?.copyWith(color: Colors.white),
-                    ),
-                    const SizedBox(height: 8),
-                    _runnerSequenceList(runner),
-                  ],
+                  ),
                 );
               },
             ),
@@ -1941,7 +1971,14 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
   }
 
   Future<void> _notifyTimedStepComplete(ExecutableWorkoutStep step) async {
-    await AppScope.of(context).notifications.show(
+    debugPrint(
+      step.isBreak
+          ? 'Workout haptic: recovery completed'
+          : 'Workout haptic: timed exercise completed',
+    );
+    final notifications = AppScope.of(context).notifications;
+    await notifications.vibrate();
+    await notifications.show(
       id: widget.runId * 1000 + step.sortOrder,
       title: step.isBreak ? 'Recupero finito' : 'Esercizio finito',
       body: step.isBreak
@@ -1956,6 +1993,71 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
       id: widget.runId * 1000 + 998,
       title: 'Workout completato',
       body: 'Sequenza terminata.',
+    );
+  }
+}
+
+class _RunnerControls extends StatelessWidget {
+  const _RunnerControls({
+    required this.runner,
+    required this.busy,
+    required this.onPrevious,
+    required this.onPause,
+    required this.onComplete,
+    required this.onFinish,
+  });
+
+  final WorkoutRunnerController runner;
+  final bool busy;
+  final VoidCallback onPrevious;
+  final VoidCallback onPause;
+  final VoidCallback onComplete;
+  final VoidCallback onFinish;
+
+  @override
+  Widget build(BuildContext context) {
+    final step = runner.currentStep;
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.tonalIcon(
+                onPressed: busy ? null : onPrevious,
+                icon: const Icon(Icons.skip_previous),
+                label: const Text('Indietro'),
+              ),
+            ),
+            if (step?.isTimed == true) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: busy ? null : onPause,
+                  icon: Icon(runner.isPaused ? Icons.play_arrow : Icons.pause),
+                  label: Text(runner.isPaused ? 'Riprendi' : 'Pausa'),
+                ),
+              ),
+            ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: busy ? null : onComplete,
+                icon: Icon(
+                  step?.isTimed == true ? Icons.skip_next : Icons.check,
+                ),
+                label: Text(step?.isTimed == true ? 'Skip' : 'Completato'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        TextButton.icon(
+          onPressed: busy ? null : onFinish,
+          icon: const Icon(Icons.flag_outlined),
+          label: const Text('Fine workout'),
+          style: TextButton.styleFrom(foregroundColor: Colors.white70),
+        ),
+      ],
     );
   }
 }
