@@ -185,6 +185,87 @@ void main() {
     expect((payload['steps'] as List<dynamic>).single['sortOrder'], 1);
   });
 
+  test('reorders top-level items by drag indexes', () {
+    final draft = WorkoutEditorDraft.empty()
+      ..name = 'Draft'
+      ..addTopStep(
+        const WorkoutStepDto(
+          name: 'Warmup',
+          stepType: 'ACTIVE',
+          measurementType: 'TIME',
+          durationSeconds: 20,
+          sortOrder: 0,
+        ),
+      )
+      ..addTopStep(
+        const WorkoutStepDto(
+          name: 'Rest',
+          stepType: 'BREAK',
+          measurementType: 'TIME',
+          durationSeconds: 30,
+          sortOrder: 1,
+        ),
+      )
+      ..addBlock(
+        const WorkoutBlockDto(
+          title: 'Circuit',
+          sortOrder: 2,
+          repeatCount: 2,
+          steps: [],
+        ),
+      );
+
+    draft.reorderTopLevelItem(2, 0);
+
+    expect(
+      draft.orderedItems().map((item) => item.block?.title ?? item.step?.name),
+      ['Circuit', 'Warmup', 'Rest'],
+    );
+  });
+
+  test('reorders steps inside a group by drag indexes', () {
+    const block = WorkoutBlockDto(
+      title: 'Circuit',
+      sortOrder: 0,
+      repeatCount: 2,
+      steps: [
+        WorkoutStepDto(
+          name: 'Push up',
+          stepType: 'ACTIVE',
+          measurementType: 'REPS',
+          reps: 10,
+          sortOrder: 0,
+        ),
+        WorkoutStepDto(
+          name: 'Rest',
+          stepType: 'BREAK',
+          measurementType: 'TIME',
+          durationSeconds: 30,
+          sortOrder: 1,
+        ),
+      ],
+    );
+    final draft = WorkoutEditorDraft(
+      name: 'Draft',
+      description: '',
+      topSteps: const [],
+      blocks: const [block],
+      legacyExercises: const [],
+    );
+
+    draft.reorderBlockStep(draft.blocks.single, 1, 0);
+
+    expect(draft.blocks.single.steps.map((step) => step.name), [
+      'Rest',
+      'Push up',
+    ]);
+    final payloadSteps =
+        ((draft.toRequestPayload()['blocks'] as List<dynamic>).single['steps']
+                as List<dynamic>)
+            .cast<Map<String, dynamic>>();
+    expect(payloadSteps.map((step) => step['sortOrder']), [0, 1]);
+  });
+
   test(
     'edit load with invalid backend payload fails instead of emptying draft',
     () {

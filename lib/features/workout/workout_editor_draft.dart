@@ -171,6 +171,39 @@ class WorkoutEditorDraft {
     _applyTopLevelOrder(items);
   }
 
+  void reorderTopLevelItem(int oldIndex, int newIndex) {
+    final items = orderedItems();
+    if (items.isEmpty || oldIndex < 0 || oldIndex >= items.length) return;
+    final targetIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
+    if (targetIndex < 0 ||
+        targetIndex >= items.length ||
+        targetIndex == oldIndex) {
+      return;
+    }
+    final moved = items.removeAt(oldIndex);
+    items.insert(targetIndex, moved);
+    _applyTopLevelOrder(items);
+  }
+
+  void reorderBlockStep(WorkoutBlockDto block, int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= block.steps.length) return;
+    final targetIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
+    if (targetIndex < 0 ||
+        targetIndex >= block.steps.length ||
+        targetIndex == oldIndex) {
+      return;
+    }
+    final steps = [...block.steps];
+    final moved = steps.removeAt(oldIndex);
+    steps.insert(targetIndex, moved);
+    final reordered = steps
+        .asMap()
+        .entries
+        .map((entry) => entry.value.copyWith(sortOrder: entry.key))
+        .toList();
+    replaceBlock(block, block.copyWith(steps: reordered));
+  }
+
   void normalizeTopLevelOrder() => _applyTopLevelOrder(orderedItems());
 
   Map<String, dynamic> toRequestPayload() {

@@ -516,6 +516,13 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
       appBar: AppBar(
         title: Text(_editing ? 'Modifica scheda' : 'Nuova scheda'),
       ),
+      floatingActionButton: draft == null
+          ? null
+          : FloatingActionButton(
+              onPressed: _openAddSheet,
+              shape: const CircleBorder(),
+              child: const Icon(Icons.add),
+            ),
       body: _status == _WorkoutEditorStatus.loading
           ? const LoadingView(label: 'Carico editor')
           : _status == _WorkoutEditorStatus.error && _editing && draft == null
@@ -560,20 +567,6 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
-                    PopupMenuButton<String>(
-                      onSelected: _addItem,
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(
-                          value: 'exercise',
-                          child: Text('Esercizio'),
-                        ),
-                        PopupMenuItem(
-                          value: 'recovery',
-                          child: Text('Recupero'),
-                        ),
-                        PopupMenuItem(value: 'block', child: Text('Gruppo')),
-                      ],
-                    ),
                   ],
                 ),
                 if (draft.orderedItems().isEmpty) ...[
@@ -583,9 +576,7 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
                     subtitle: 'Aggiungi esercizi, recuperi o un gruppo.',
                   ),
                 ],
-                ...draft.orderedItems().asMap().entries.map(
-                  (entry) => _editorItem(entry.value, entry.key),
-                ),
+                if (draft.orderedItems().isNotEmpty) _structureList(draft),
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   onPressed: _canSave ? _save : null,
@@ -602,43 +593,95 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
     );
   }
 
-  Widget _editorItem(EditableWorkoutItem item, int position) {
+  Widget _structureList(WorkoutEditorDraft draft) {
+    final items = draft.orderedItems();
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      buildDefaultDragHandles: false,
+      itemCount: items.length,
+      proxyDecorator: _dragProxyDecorator,
+      onReorder: _reorderTopLevelItem,
+      itemBuilder: (context, index) =>
+          _editorItem(items[index], index, _itemKey(items[index])),
+    );
+  }
+
+  Widget _dragProxyDecorator(
+    Widget child,
+    int index,
+    Animation<double> animation,
+  ) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        final value = Curves.easeOut.transform(animation.value);
+        return Transform.scale(
+          scale: 1 + value * 0.02,
+          child: Material(
+            elevation: 6,
+            color: Colors.transparent,
+            shadowColor: Theme.of(context).colorScheme.shadow,
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+
+  Key _itemKey(EditableWorkoutItem item) =>
+      item.step == null ? ObjectKey(item.block) : ObjectKey(item.step);
+
+  Widget _editorItem(EditableWorkoutItem item, int position, Key key) {
     if (item.step != null) {
       final step = item.step!;
       return Padding(
+        key: key,
         padding: const EdgeInsets.only(bottom: 8),
         child: SectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          child: Row(
             children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  step.stepType == 'BREAK' ? Icons.timer : Icons.fitness_center,
+              ReorderableDelayedDragStartListener(
+                index: position,
+                child: Icon(
+                  Icons.drag_handle,
+                  color: Theme.of(context).colorScheme.outline,
                 ),
-                title: Text(step.name),
-                subtitle: Text(_stepMeta(step)),
               ),
-              Wrap(
-                spacing: 4,
-                runSpacing: 4,
-                children: [
-                  IconButton(
-                    onPressed: () => _moveItem(position, -1),
-                    icon: const Icon(Icons.arrow_upward),
-                  ),
-                  IconButton(
-                    onPressed: () => _moveItem(position, 1),
-                    icon: const Icon(Icons.arrow_downward),
-                  ),
-                  IconButton(
-                    onPressed: () => _editTopStep(step),
-                    icon: const Icon(Icons.edit),
-                  ),
-                  IconButton(
-                    onPressed: () => _removeTopStep(step),
-                    icon: const Icon(Icons.delete_outline),
-                  ),
+              const SizedBox(width: 8),
+              Icon(
+                step.stepType == 'BREAK' ? Icons.timer : Icons.fitness_center,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      step.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _stepMeta(step),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  if (value == 'edit') _editTopStep(step);
+                  if (value == 'delete') _removeTopStep(step);
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'edit', child: Text('Modifica')),
+                  PopupMenuItem(value: 'delete', child: Text('Elimina')),
                 ],
               ),
             ],
@@ -649,22 +692,25 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
 
     final block = item.block!;
     return Padding(
+      key: key,
       padding: const EdgeInsets.only(bottom: 8),
       child: SectionCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            Row(
               children: [
-                const Icon(Icons.repeat),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    minWidth: 120,
-                    maxWidth: 240,
+                ReorderableDelayedDragStartListener(
+                  index: position,
+                  child: Icon(
+                    Icons.drag_handle,
+                    color: Theme.of(context).colorScheme.outline,
                   ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.repeat),
+                const SizedBox(width: 12),
+                Expanded(
                   child: Text(
                     '${block.title} - ${block.repeatCount} giri',
                     style: Theme.of(context).textTheme.titleMedium,
@@ -672,45 +718,20 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                IconButton(
-                  onPressed: () => _moveItem(position, -1),
-                  icon: const Icon(Icons.arrow_upward),
-                ),
-                IconButton(
-                  onPressed: () => _moveItem(position, 1),
-                  icon: const Icon(Icons.arrow_downward),
-                ),
-                IconButton(
-                  onPressed: () => _editBlock(block),
-                  icon: const Icon(Icons.edit),
-                ),
-                IconButton(
-                  onPressed: () => _removeBlock(block),
-                  icon: const Icon(Icons.delete_outline),
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'edit') _editBlock(block);
+                    if (value == 'delete') _removeBlock(block);
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Modifica')),
+                    PopupMenuItem(value: 'delete', child: Text('Elimina')),
+                  ],
                 ),
               ],
             ),
-            ...block.steps.asMap().entries.map(
-              (entry) => ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(child: Text('${entry.key + 1}')),
-                title: Text(entry.value.name),
-                subtitle: Text(_stepMeta(entry.value)),
-                trailing: Wrap(
-                  children: [
-                    IconButton(
-                      onPressed: () => _editBlockStep(block, entry.value),
-                      icon: const Icon(Icons.edit),
-                    ),
-                    IconButton(
-                      onPressed: () => _removeBlockStep(block, entry.value),
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            const SizedBox(height: 8),
+            _blockStepsList(block),
             TextButton.icon(
               onPressed: () => _addBlockStep(block),
               icon: const Icon(Icons.add),
@@ -719,6 +740,59 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _blockStepsList(WorkoutBlockDto block) {
+    if (block.steps.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text(
+          'Nessuno step nel gruppo',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      );
+    }
+
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      buildDefaultDragHandles: false,
+      itemCount: block.steps.length,
+      proxyDecorator: _dragProxyDecorator,
+      onReorder: (oldIndex, newIndex) =>
+          _reorderBlockStep(block, oldIndex, newIndex),
+      itemBuilder: (context, index) {
+        final step = block.steps[index];
+        return ListTile(
+          key: ObjectKey(step),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: ReorderableDelayedDragStartListener(
+            index: index,
+            child: Icon(
+              Icons.drag_indicator,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          title: Text(step.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            _stepMeta(step),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'edit') _editBlockStep(block, step);
+              if (value == 'delete') _removeBlockStep(block, step);
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'edit', child: Text('Modifica')),
+              PopupMenuItem(value: 'delete', child: Text('Elimina')),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -795,6 +869,16 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
     draft.description = _description.text;
   }
 
+  Future<void> _openAddSheet() async {
+    final type = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => const _AddWorkoutItemSheet(),
+    );
+    if (!mounted || type == null) return;
+    await _addItem(type);
+  }
+
   Future<void> _addItem(String type) async {
     final draft = _draft;
     if (draft == null) return;
@@ -807,9 +891,30 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
       return;
     }
 
+    if (type == 'recovery') {
+      final durationSeconds = await showModalBottomSheet<int>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (context) => const _RecoveryQuickSheet(),
+      );
+      if (!mounted || durationSeconds == null) return;
+      final step = WorkoutStepDto(
+        name: 'Recupero',
+        description: '',
+        stepType: 'BREAK',
+        measurementType: 'TIME',
+        durationSeconds: durationSeconds,
+        sortOrder: draft.orderedItems().length,
+        active: true,
+      );
+      setState(() => draft.addTopStep(step));
+      return;
+    }
+
     final step = await _stepDialog(
       initial: makeWorkoutEditorStep(
-        stepType: type == 'recovery' ? 'BREAK' : 'ACTIVE',
+        stepType: 'ACTIVE',
         sortOrder: draft.orderedItems().length,
       ),
     );
@@ -856,8 +961,12 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
     setState(() => _draft?.removeBlockStep(block, step));
   }
 
-  void _moveItem(int position, int delta) {
-    setState(() => _draft?.moveTopLevelItem(position, delta));
+  void _reorderTopLevelItem(int oldIndex, int newIndex) {
+    setState(() => _draft?.reorderTopLevelItem(oldIndex, newIndex));
+  }
+
+  void _reorderBlockStep(WorkoutBlockDto block, int oldIndex, int newIndex) {
+    setState(() => _draft?.reorderBlockStep(block, oldIndex, newIndex));
   }
 
   Future<WorkoutStepDto?> _stepDialog({
@@ -926,6 +1035,166 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+}
+
+class _AddWorkoutItemSheet extends StatelessWidget {
+  const _AddWorkoutItemSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _AddWorkoutItemTile(
+              icon: Icons.fitness_center,
+              title: 'Esercizio',
+              onTap: () => Navigator.of(context).pop('exercise'),
+            ),
+            _AddWorkoutItemTile(
+              icon: Icons.timer,
+              title: 'Recupero',
+              onTap: () => Navigator.of(context).pop('recovery'),
+            ),
+            _AddWorkoutItemTile(
+              icon: Icons.repeat,
+              title: 'Gruppo',
+              onTap: () => Navigator.of(context).pop('block'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddWorkoutItemTile extends StatelessWidget {
+  const _AddWorkoutItemTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      minVerticalPadding: 14,
+      leading: Icon(icon),
+      title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
+    );
+  }
+}
+
+class _RecoveryQuickSheet extends StatefulWidget {
+  const _RecoveryQuickSheet();
+
+  @override
+  State<_RecoveryQuickSheet> createState() => _RecoveryQuickSheetState();
+}
+
+class _RecoveryQuickSheetState extends State<_RecoveryQuickSheet> {
+  static const _quickDurations = <int>[30, 45, 60, 90, 120, 180];
+
+  final _customSeconds = TextEditingController();
+  int _selectedSeconds = 30;
+  String? _error;
+
+  @override
+  void dispose() {
+    _customSeconds.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + bottomInset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Aggiungi recupero',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _quickDurations
+                  .map(
+                    (seconds) => ChoiceChip(
+                      label: Text(_recoveryLabel(seconds)),
+                      selected: _selectedSeconds == seconds,
+                      onSelected: (_) {
+                        setState(() {
+                          _selectedSeconds = seconds;
+                          _customSeconds.clear();
+                          _error = null;
+                        });
+                      },
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _customSeconds,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Durata custom in secondi',
+              ),
+              onChanged: (_) => setState(() => _error = null),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _submit,
+                child: const Text('Aggiungi recupero'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _submit() {
+    final custom = dates.parseOptionalInt(_customSeconds.text);
+    final durationSeconds = custom ?? _selectedSeconds;
+    if (durationSeconds <= 0) {
+      setState(() => _error = 'La durata deve essere maggiore di zero.');
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop(durationSeconds);
+  }
+
+  String _recoveryLabel(int seconds) {
+    if (seconds < 60) return '$seconds sec';
+    final minutes = seconds ~/ 60;
+    final rest = seconds % 60;
+    if (rest == 0) return '$minutes min';
+    return '$minutes min $rest sec';
   }
 }
 
