@@ -340,13 +340,20 @@ class _DayScreenState extends State<DayScreen> {
   }
 
   Future<void> _load() async {
+    final date = dates.formatDate(_date);
+    debugPrint(
+      '[day-screen] loading -> loading date=$date endpoints=/day-contexts,/daily-plans/date/$date,/events,/workout-sessions/date/$date,/workout-templates',
+    );
     setState(() {
       _loading = true;
       _error = null;
     });
+    final deps = AppScope.read(context);
     try {
-      final deps = AppScope.of(context);
-      final date = dates.formatDate(_date);
+      await deps.auth.waitUntilReady();
+      if (!deps.auth.isAuthenticated) {
+        throw ApiException(statusCode: 401, message: 'Sessione non attiva.');
+      }
       final results = await Future.wait([
         deps.planningApi.getDayContexts(),
         deps.planningApi.getDailyPlan(date),
@@ -354,6 +361,8 @@ class _DayScreenState extends State<DayScreen> {
         deps.workoutApi.getWorkoutSessionsByDate(date),
         deps.workoutApi.getWorkoutTemplates(),
       ]);
+      debugPrint('[day-screen] loading -> loaded date=$date');
+      if (!mounted) return;
       setState(() {
         _contexts = results[0] as List<DayContextResponse>;
         _plan = results[1] as DailyPlanResponse;
@@ -363,7 +372,11 @@ class _DayScreenState extends State<DayScreen> {
         _templates = results[4] as List<WorkoutTemplateResponse>;
       });
     } on ApiException catch (error) {
-      setState(() => _error = error.message);
+      debugPrint('[day-screen] loading -> error ${error.message}');
+      if (mounted) setState(() => _error = error.message);
+    } catch (error) {
+      debugPrint('[day-screen] loading -> error $error');
+      if (mounted) setState(() => _error = 'Errore caricamento giornata.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -557,26 +570,39 @@ class _WeekScreenState extends State<WeekScreen> {
   }
 
   Future<void> _load() async {
+    final from = dates.formatDate(_weekStart);
+    final to = dates.formatDate(_weekStart.add(const Duration(days: 6)));
+    debugPrint(
+      '[week-screen] loading -> loading from=$from to=$to endpoints=/daily-plans/week,/events,/workout-sessions',
+    );
     setState(() {
       _loading = true;
       _error = null;
     });
+    final deps = AppScope.read(context);
     try {
-      final deps = AppScope.of(context);
-      final from = dates.formatDate(_weekStart);
-      final to = dates.formatDate(_weekStart.add(const Duration(days: 6)));
+      await deps.auth.waitUntilReady();
+      if (!deps.auth.isAuthenticated) {
+        throw ApiException(statusCode: 401, message: 'Sessione non attiva.');
+      }
       final results = await Future.wait([
         deps.planningApi.getWeekPlans(from),
         deps.planningApi.getEvents(from: from, to: to),
         deps.workoutApi.getWorkoutSessions(from: from, to: to),
       ]);
+      debugPrint('[week-screen] loading -> loaded from=$from to=$to');
+      if (!mounted) return;
       setState(() {
         _plans = results[0] as List<DailyPlanResponse>;
         _events = results[1] as List<CalendarEventResponse>;
         _sessions = results[2] as List<WorkoutSessionResponse>;
       });
     } on ApiException catch (error) {
-      setState(() => _error = error.message);
+      debugPrint('[week-screen] loading -> error ${error.message}');
+      if (mounted) setState(() => _error = error.message);
+    } catch (error) {
+      debugPrint('[week-screen] loading -> error $error');
+      if (mounted) setState(() => _error = 'Errore caricamento settimana.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -724,24 +750,37 @@ class _CalendarScreenState extends State<CalendarScreen> {
   );
 
   Future<void> _load() async {
+    final from = dates.formatDate(dates.firstVisibleMonthDay(_month));
+    final to = dates.formatDate(dates.lastVisibleMonthDay(_month));
+    debugPrint(
+      '[calendar-screen] loading -> loading from=$from to=$to endpoints=/events,/workout-sessions',
+    );
     setState(() {
       _loading = true;
       _error = null;
     });
+    final deps = AppScope.read(context);
     try {
-      final deps = AppScope.of(context);
-      final from = dates.formatDate(dates.firstVisibleMonthDay(_month));
-      final to = dates.formatDate(dates.lastVisibleMonthDay(_month));
+      await deps.auth.waitUntilReady();
+      if (!deps.auth.isAuthenticated) {
+        throw ApiException(statusCode: 401, message: 'Sessione non attiva.');
+      }
       final results = await Future.wait([
         deps.planningApi.getEvents(from: from, to: to),
         deps.workoutApi.getWorkoutSessions(from: from, to: to),
       ]);
+      debugPrint('[calendar-screen] loading -> loaded from=$from to=$to');
+      if (!mounted) return;
       setState(() {
         _events = results[0] as List<CalendarEventResponse>;
         _sessions = results[1] as List<WorkoutSessionResponse>;
       });
     } on ApiException catch (error) {
-      setState(() => _error = error.message);
+      debugPrint('[calendar-screen] loading -> error ${error.message}');
+      if (mounted) setState(() => _error = error.message);
+    } catch (error) {
+      debugPrint('[calendar-screen] loading -> error $error');
+      if (mounted) setState(() => _error = 'Errore caricamento calendario.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

@@ -137,17 +137,27 @@ class _WorkoutsListScreenState extends State<WorkoutsListScreen> {
   }
 
   Future<void> _load() async {
+    debugPrint('[workout-list] loading -> loading endpoint=/workout-templates');
     setState(() {
       _loading = true;
       _error = null;
     });
+    final deps = AppScope.read(context);
     try {
-      final templates = await AppScope.of(
-        context,
-      ).workoutApi.getWorkoutTemplates();
+      await deps.auth.waitUntilReady();
+      if (!deps.auth.isAuthenticated) {
+        throw ApiException(statusCode: 401, message: 'Sessione non attiva.');
+      }
+      final templates = await deps.workoutApi.getWorkoutTemplates();
+      debugPrint('[workout-list] loading -> loaded count=${templates.length}');
+      if (!mounted) return;
       setState(() => _templates = templates);
     } on ApiException catch (error) {
-      setState(() => _error = error.message);
+      debugPrint('[workout-list] loading -> error ${error.message}');
+      if (mounted) setState(() => _error = error.message);
+    } catch (error) {
+      debugPrint('[workout-list] loading -> error $error');
+      if (mounted) setState(() => _error = 'Errore caricamento schede.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -336,6 +346,18 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
   }
 
   Future<void> _load() async {
+    if (widget.templateId <= 0) {
+      debugPrint('[workout-detail] invalid templateId=${widget.templateId}');
+      setState(() {
+        _loading = false;
+        _error = 'ID scheda workout non valido.';
+        _template = null;
+      });
+      return;
+    }
+    debugPrint(
+      '[workout-detail] loading -> loading endpoint=/workout-templates/${widget.templateId} id=${widget.templateId}',
+    );
     if (_template == null) {
       setState(() {
         _loading = true;
@@ -344,13 +366,24 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
     } else {
       setState(() => _error = null);
     }
+    final deps = AppScope.read(context);
     try {
-      final template = await AppScope.of(
-        context,
-      ).workoutApi.getWorkoutTemplate(widget.templateId);
+      await deps.auth.waitUntilReady();
+      if (!deps.auth.isAuthenticated) {
+        throw ApiException(statusCode: 401, message: 'Sessione non attiva.');
+      }
+      final template = await deps.workoutApi.getWorkoutTemplate(
+        widget.templateId,
+      );
+      debugPrint('[workout-detail] loading -> loaded id=${template.id}');
+      if (!mounted) return;
       setState(() => _template = template);
     } on ApiException catch (error) {
-      setState(() => _error = error.message);
+      debugPrint('[workout-detail] loading -> error ${error.message}');
+      if (mounted) setState(() => _error = error.message);
+    } catch (error) {
+      debugPrint('[workout-detail] loading -> error $error');
+      if (mounted) setState(() => _error = 'Errore caricamento scheda.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -690,15 +723,33 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
   }
 
   Future<void> _load() async {
+    final templateId = widget.templateId;
+    if (templateId == null || templateId <= 0) {
+      debugPrint('[workout-editor] invalid templateId=$templateId');
+      setState(() {
+        _status = _WorkoutEditorStatus.error;
+        _error = 'ID scheda workout non valido.';
+        _draft = null;
+      });
+      return;
+    }
+    debugPrint(
+      '[workout-editor] loading -> loading endpoint=/workout-templates/$templateId id=$templateId',
+    );
     setState(() {
       _status = _WorkoutEditorStatus.loading;
       _error = null;
       _draft = null;
     });
-    final workoutApi = AppScope.of(context).workoutApi;
+    final deps = AppScope.read(context);
     try {
-      final template = await workoutApi.getWorkoutTemplate(widget.templateId!);
+      await deps.auth.waitUntilReady();
+      if (!deps.auth.isAuthenticated) {
+        throw ApiException(statusCode: 401, message: 'Sessione non attiva.');
+      }
+      final template = await deps.workoutApi.getWorkoutTemplate(templateId);
       final draft = WorkoutEditorDraft.fromTemplate(template);
+      debugPrint('[workout-editor] loading -> loaded id=${template.id}');
       if (!mounted) return;
       setState(() {
         _draft = draft;
@@ -707,6 +758,7 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
       });
       _hydrateControllers(draft);
     } on ApiException catch (error) {
+      debugPrint('[workout-editor] loading -> error ${error.message}');
       if (!mounted) return;
       setState(() {
         _status = _WorkoutEditorStatus.error;
@@ -715,10 +767,18 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
             : error.message;
       });
     } on WorkoutEditorException catch (error) {
+      debugPrint('[workout-editor] loading -> error ${error.message}');
       if (!mounted) return;
       setState(() {
         _status = _WorkoutEditorStatus.error;
         _error = error.message;
+      });
+    } catch (error) {
+      debugPrint('[workout-editor] loading -> error $error');
+      if (!mounted) return;
+      setState(() {
+        _status = _WorkoutEditorStatus.error;
+        _error = 'Errore caricamento editor.';
       });
     }
   }
@@ -853,7 +913,7 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
       _saving = true;
       _error = null;
     });
-    final workoutApi = AppScope.of(context).workoutApi;
+    final workoutApi = AppScope.read(context).workoutApi;
     try {
       if (_editing) {
         await workoutApi.updateWorkoutTemplate(widget.templateId!, payload);
@@ -1327,14 +1387,32 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
   }
 
   Future<void> _load() async {
+    if (widget.runId <= 0) {
+      debugPrint('[workout-runner] invalid runId=${widget.runId}');
+      setState(() {
+        _loading = false;
+        _error = 'ID runner workout non valido.';
+        _runner?.dispose();
+        _runner = null;
+      });
+      return;
+    }
+    debugPrint(
+      '[workout-runner] loading -> loading endpoint=/workout-runs/${widget.runId} id=${widget.runId}',
+    );
     setState(() {
       _loading = true;
       _error = null;
     });
+    final deps = AppScope.read(context);
     try {
-      final run = await AppScope.of(
-        context,
-      ).workoutApi.getWorkoutRun(widget.runId);
+      await deps.auth.waitUntilReady();
+      if (!deps.auth.isAuthenticated) {
+        throw ApiException(statusCode: 401, message: 'Sessione non attiva.');
+      }
+      final run = await deps.workoutApi.getWorkoutRun(widget.runId);
+      debugPrint('[workout-runner] loading -> loaded id=${run.id}');
+      if (!mounted) return;
       _runner?.dispose();
       _runner = WorkoutRunnerController(
         run: run,
@@ -1347,7 +1425,11 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
         (_) => _persistState(),
       );
     } on ApiException catch (error) {
-      setState(() => _error = error.message);
+      debugPrint('[workout-runner] loading -> error ${error.message}');
+      if (mounted) setState(() => _error = error.message);
+    } catch (error) {
+      debugPrint('[workout-runner] loading -> error $error');
+      if (mounted) setState(() => _error = 'Errore caricamento runner.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

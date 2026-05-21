@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 class ApiException implements Exception {
   ApiException({
     required this.statusCode,
@@ -100,7 +102,44 @@ class ApiClient {
     Map<String, String?> query = const {},
     bool auth = true,
   }) async {
+    final stopwatch = Stopwatch()..start();
     final uri = _buildUri(path, query);
+    debugPrint('[api] $method ${uri.path} start');
+    try {
+      final decoded = await _sendRequest(method, uri, body: body, auth: auth)
+          .timeout(
+            const Duration(seconds: 20),
+            onTimeout: () {
+              throw ApiException(
+                statusCode: 408,
+                message: 'Timeout API: $method ${uri.path}',
+              );
+            },
+          );
+      debugPrint(
+        '[api] $method ${uri.path} success ${stopwatch.elapsedMilliseconds}ms',
+      );
+      return decoded;
+    } on ApiException catch (error) {
+      debugPrint(
+        '[api] $method ${uri.path} error ${error.statusCode} ${error.message}',
+      );
+      rethrow;
+    } catch (error) {
+      debugPrint('[api] $method ${uri.path} error $error');
+      throw ApiException(
+        statusCode: 500,
+        message: 'Errore rete: $method ${uri.path}',
+      );
+    }
+  }
+
+  Future<dynamic> _sendRequest(
+    String method,
+    Uri uri, {
+    Object? body,
+    bool auth = true,
+  }) async {
     final request = await _httpClient.openUrl(method, uri);
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
     request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
@@ -110,7 +149,6 @@ class ApiClient {
     if (body != null) {
       request.write(jsonEncode(body));
     }
-
     final response = await request.close();
     final text = await response.transform(utf8.decoder).join();
     final decoded = text.isEmpty ? null : jsonDecode(text);

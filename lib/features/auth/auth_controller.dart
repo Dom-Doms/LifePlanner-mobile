@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -33,6 +34,26 @@ class AuthController extends ChangeNotifier {
   bool get isAuthenticated => _token != null && _user != null;
   String? get token => _token;
   UserResponse? get user => _user;
+
+  Future<void> waitUntilReady({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    if (!_restoring) return;
+    final completer = Completer<void>();
+    void listener() {
+      if (!_restoring && !completer.isCompleted) {
+        completer.complete();
+      }
+    }
+
+    addListener(listener);
+    try {
+      listener();
+      await completer.future.timeout(timeout);
+    } finally {
+      removeListener(listener);
+    }
+  }
 
   Future<void> restore() async {
     _restoring = true;
