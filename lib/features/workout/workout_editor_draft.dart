@@ -95,7 +95,9 @@ class WorkoutEditorDraft {
   }
 
   void addTopStep(WorkoutStepDto step) {
-    topSteps.add(step.copyWith(sortOrder: orderedItems().length));
+    topSteps.add(
+      step.copyWith(sortOrder: orderedItems().length, clearBlockId: true),
+    );
     normalizeTopLevelOrder();
   }
 
@@ -113,7 +115,10 @@ class WorkoutEditorDraft {
   void replaceTopStep(WorkoutStepDto oldStep, WorkoutStepDto newStep) {
     final index = topSteps.indexOf(oldStep);
     if (index < 0) return;
-    topSteps[index] = newStep.copyWith(sortOrder: oldStep.sortOrder);
+    topSteps[index] = newStep.copyWith(
+      sortOrder: oldStep.sortOrder,
+      clearBlockId: true,
+    );
   }
 
   void removeTopStep(WorkoutStepDto step) {
@@ -233,8 +238,13 @@ class WorkoutEditorDraft {
         legacyExercises,
       ),
       'exercises': legacyExercises.map((item) => item.toJson()).toList(),
-      'steps': normalizedTopSteps.map((item) => item.toJson()).toList(),
-      'blocks': normalizedBlocks.map((item) => item.toJson()).toList(),
+      'steps': normalizedTopSteps
+          .map(
+            (step) =>
+                workoutStepRequestPayload(step, sortOrder: step.sortOrder),
+          )
+          .toList(),
+      'blocks': normalizedBlocks.map(workoutBlockRequestPayload).toList(),
     });
   }
 
@@ -246,7 +256,7 @@ class WorkoutEditorDraft {
         if (stepIndex >= 0) {
           topSteps[stepIndex] = item.step!.copyWith(
             sortOrder: index,
-            blockId: null,
+            clearBlockId: true,
           );
         }
       } else {
@@ -348,6 +358,54 @@ int estimateStep(WorkoutStepDto step) {
         : step.durationSeconds!.clamp(0, 86400);
   }
   return step.reps == null ? 0 : step.reps!.clamp(0, 10000) * 5;
+}
+
+Map<String, dynamic> workoutBlockRequestPayload(WorkoutBlockDto block) {
+  final steps = normalizeSteps(block.steps);
+  return withoutNulls({
+    'id': block.id,
+    'title': block.title.trim(),
+    'sortOrder': block.sortOrder,
+    'repeatCount': normalizeRepeatCount(block.repeatCount),
+    'color': block.color,
+    'collapsed': block.collapsed,
+    'steps': steps
+        .asMap()
+        .entries
+        .map(
+          (entry) =>
+              workoutStepRequestPayload(entry.value, sortOrder: entry.key),
+        )
+        .toList(),
+  });
+}
+
+Map<String, dynamic> workoutStepRequestPayload(
+  WorkoutStepDto step, {
+  required int sortOrder,
+}) {
+  final stepType = step.stepType == 'BREAK' ? 'BREAK' : 'ACTIVE';
+  final measurementType = stepType == 'BREAK'
+      ? 'TIME'
+      : step.measurementType == 'TIME'
+      ? 'TIME'
+      : 'REPS';
+  return withoutNulls({
+    'id': step.id,
+    'blockId': null,
+    'name': step.name.trim(),
+    'description': step.description?.trim(),
+    'stepType': stepType,
+    'measurementType': measurementType,
+    'durationSeconds': measurementType == 'TIME' ? step.durationSeconds : null,
+    'reps': stepType == 'ACTIVE' && measurementType == 'REPS'
+        ? step.reps
+        : null,
+    'sortOrder': sortOrder,
+    'color': step.color,
+    'intensity': step.intensity,
+    'active': step.active,
+  });
 }
 
 WorkoutStepDto _normalizeLoadedStep(WorkoutStepDto step) {

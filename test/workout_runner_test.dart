@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lifeplanner_mobile/data/models/workout_models.dart';
 import 'package:lifeplanner_mobile/features/workout/workout_runner_controller.dart';
@@ -195,6 +197,154 @@ void main() {
     runner.tickOneSecond();
     expect(runner.remainingTime, 1);
   });
+
+  test('runner reorders only future steps and keeps current step stable', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Squat',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 10,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Bench',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 8,
+            sortOrder: 1,
+          ),
+          const WorkoutStepDto(
+            name: 'Row',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 12,
+            sortOrder: 2,
+          ),
+        ]),
+      ),
+    );
+    addTearDown(runner.dispose);
+
+    final changed = runner.reorderFutureStep(2, 1);
+
+    expect(changed, isTrue);
+    expect(runner.currentStep?.name, 'Squat');
+    expect(runner.sequence.map((step) => step.name), ['Squat', 'Row', 'Bench']);
+  });
+
+  test('runner blocks completed and current steps from reorder', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Squat',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 10,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Bench',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 8,
+            sortOrder: 1,
+          ),
+        ]),
+      ),
+    );
+    addTearDown(runner.dispose);
+
+    expect(runner.reorderFutureStep(0, 1), isFalse);
+    runner.completeStep();
+    expect(runner.reorderFutureStep(0, 1), isFalse);
+  });
+
+  test('runner next uses reordered future sequence', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Squat',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 10,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Bench',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 8,
+            sortOrder: 1,
+          ),
+          const WorkoutStepDto(
+            name: 'Row',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 12,
+            sortOrder: 2,
+          ),
+        ]),
+      ),
+    );
+    addTearDown(runner.dispose);
+
+    runner.reorderFutureStep(2, 1);
+    runner.completeStep();
+
+    expect(runner.currentStep?.name, 'Row');
+    expect(runner.nextStep?.name, 'Bench');
+  });
+
+  test('runner snapshot persists and hydrates custom sequence order', () {
+    final template = _template([
+      const WorkoutStepDto(
+        id: 1,
+        name: 'Squat',
+        stepType: 'ACTIVE',
+        measurementType: 'REPS',
+        reps: 10,
+        sortOrder: 0,
+      ),
+      const WorkoutStepDto(
+        id: 2,
+        name: 'Bench',
+        stepType: 'ACTIVE',
+        measurementType: 'REPS',
+        reps: 8,
+        sortOrder: 1,
+      ),
+      const WorkoutStepDto(
+        id: 3,
+        name: 'Row',
+        stepType: 'ACTIVE',
+        measurementType: 'REPS',
+        reps: 12,
+        sortOrder: 2,
+      ),
+    ]);
+    final runner = WorkoutRunnerController(run: _runFor(template));
+    addTearDown(runner.dispose);
+
+    runner.reorderFutureStep(2, 1);
+    final snapshotJson = runner.snapshot()['snapshotJson'] as String;
+    final snapshot = jsonDecode(snapshotJson) as Map<String, dynamic>;
+    final hydrated = WorkoutRunnerController(
+      run: _runFor(template, snapshotJson: snapshotJson),
+    );
+    addTearDown(hydrated.dispose);
+
+    expect(snapshot['sequenceOrder'], isA<List<dynamic>>());
+    expect(hydrated.sequence.map((step) => step.name), [
+      'Squat',
+      'Row',
+      'Bench',
+    ]);
+  });
 }
 
 WorkoutTemplateResponse _template(List<WorkoutStepDto> steps) {
@@ -207,7 +357,10 @@ WorkoutTemplateResponse _template(List<WorkoutStepDto> steps) {
   );
 }
 
-WorkoutRunResponse _runFor(WorkoutTemplateResponse template) {
+WorkoutRunResponse _runFor(
+  WorkoutTemplateResponse template, {
+  String? snapshotJson,
+}) {
   final steps = flattenWorkoutTemplate(template);
   return WorkoutRunResponse(
     id: 7,
@@ -219,6 +372,7 @@ WorkoutRunResponse _runFor(WorkoutTemplateResponse template) {
     currentLap: 1,
     totalSteps: steps.length,
     remainingSteps: steps.length,
+    snapshotJson: snapshotJson,
     template: template,
     createdAt: '2026-01-01T00:00:00',
     updatedAt: '2026-01-01T00:00:00',

@@ -7,6 +7,7 @@ import '../../data/models/workout_models.dart';
 
 class ExecutableWorkoutStep {
   const ExecutableWorkoutStep({
+    required this.sequenceKey,
     required this.name,
     required this.stepType,
     required this.measurementType,
@@ -22,6 +23,7 @@ class ExecutableWorkoutStep {
     this.originStepId,
   });
 
+  final String sequenceKey;
   final int? id;
   final int? originStepId;
   final String name;
@@ -38,6 +40,23 @@ class ExecutableWorkoutStep {
 
   bool get isTimed => measurementType == 'TIME';
   bool get isBreak => stepType == 'BREAK';
+
+  ExecutableWorkoutStep copyWith({int? sortOrder}) => ExecutableWorkoutStep(
+    sequenceKey: sequenceKey,
+    id: id,
+    originStepId: originStepId,
+    name: name,
+    description: description,
+    stepType: stepType,
+    measurementType: measurementType,
+    durationSeconds: durationSeconds,
+    reps: reps,
+    sortOrder: sortOrder ?? this.sortOrder,
+    blockTitle: blockTitle,
+    blockIndex: blockIndex,
+    lap: lap,
+    totalLaps: totalLaps,
+  );
 }
 
 List<ExecutableWorkoutStep> flattenWorkoutTemplate(
@@ -77,6 +96,7 @@ List<ExecutableWorkoutStep> flattenWorkoutTemplate(
       .entries
       .map(
         (entry) => ExecutableWorkoutStep(
+          sequenceKey: _sequenceKey(entry.value, entry.key),
           id: entry.value.id,
           originStepId: entry.value.originStepId,
           name: entry.value.name,
@@ -141,6 +161,7 @@ class WorkoutRunnerController extends ChangeNotifier {
     'snapshotJson': jsonEncode({
       'remainingTime': remainingTime,
       'sequenceLength': _sequence.length,
+      'sequenceOrder': _sequence.map((step) => step.sequenceKey).toList(),
     }),
   }..removeWhere((_, value) => value == null);
 
@@ -180,6 +201,25 @@ class WorkoutRunnerController extends ChangeNotifier {
 
   void completeStep() => next();
 
+  bool reorderFutureStep(int oldIndex, int newIndex) {
+    if (oldIndex <= currentIndex ||
+        oldIndex < 0 ||
+        oldIndex >= _sequence.length ||
+        _sequence.length < 2) {
+      return false;
+    }
+    var targetIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
+    targetIndex = targetIndex.clamp(currentIndex + 1, _sequence.length - 1);
+    if (targetIndex == oldIndex) return false;
+
+    final steps = [..._sequence];
+    final moved = steps.removeAt(oldIndex);
+    steps.insert(targetIndex, moved);
+    _sequence = _withDisplayOrder(steps);
+    notifyListeners();
+    return true;
+  }
+
   @visibleForTesting
   void tickOneSecond() => _handleTick();
 
@@ -192,6 +232,7 @@ class WorkoutRunnerController extends ChangeNotifier {
   }
 
   void _hydrate(WorkoutRunResponse run) {
+    _sequence = _applySnapshotOrder(_sequence, run.snapshotJson);
     currentIndex = run.currentStepIndex
         .clamp(0, _sequence.isEmpty ? 0 : _sequence.length - 1)
         .toInt();
@@ -238,6 +279,31 @@ class WorkoutRunnerController extends ChangeNotifier {
     return null;
   }
 
+  List<ExecutableWorkoutStep> _applySnapshotOrder(
+    List<ExecutableWorkoutStep> base,
+    String? raw,
+  ) {
+    if (raw == null || raw.isEmpty || base.length < 2) {
+      return _withDisplayOrder(base);
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return _withDisplayOrder(base);
+      final rawOrder = decoded['sequenceOrder'];
+      if (rawOrder is! List || rawOrder.length != base.length) {
+        return _withDisplayOrder(base);
+      }
+      final order = rawOrder.map((item) => item.toString()).toList();
+      final byKey = {for (final step in base) step.sequenceKey: step};
+      if (order.any((key) => !byKey.containsKey(key))) {
+        return _withDisplayOrder(base);
+      }
+      return _withDisplayOrder(order.map((key) => byKey[key]!).toList());
+    } catch (_) {
+      return _withDisplayOrder(base);
+    }
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
@@ -282,6 +348,7 @@ ExecutableWorkoutStep _toExecutable(
   int totalLaps,
   WorkoutBlockDto? block,
 ) => ExecutableWorkoutStep(
+  sequenceKey: '',
   id: step.id,
   originStepId: step.id,
   name: step.name,
@@ -296,6 +363,26 @@ ExecutableWorkoutStep _toExecutable(
   lap: lap,
   totalLaps: totalLaps,
 );
+
+String _sequenceKey(ExecutableWorkoutStep step, int baseIndex) {
+  final origin = step.originStepId ?? step.id;
+  return [
+    'base:$baseIndex',
+    'step:${origin ?? 'new'}',
+    'block:${step.blockIndex}',
+    'lap:${step.lap}',
+    'order:${step.sortOrder}',
+    'name:${step.name}',
+  ].join('|');
+}
+
+List<ExecutableWorkoutStep> _withDisplayOrder(
+  List<ExecutableWorkoutStep> steps,
+) => steps
+    .asMap()
+    .entries
+    .map((entry) => entry.value.copyWith(sortOrder: entry.key))
+    .toList();
 
 List<WorkoutStepDto> _legacyExercisesToSteps(WorkoutTemplateResponse template) {
   return template.exercises

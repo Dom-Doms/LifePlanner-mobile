@@ -96,6 +96,7 @@ class WorkoutStepDto {
   WorkoutStepDto copyWith({
     int? id,
     int? blockId,
+    bool clearBlockId = false,
     String? name,
     String? description,
     String? stepType,
@@ -108,7 +109,7 @@ class WorkoutStepDto {
     bool? active,
   }) => WorkoutStepDto(
     id: id ?? this.id,
-    blockId: blockId ?? this.blockId,
+    blockId: clearBlockId ? null : blockId ?? this.blockId,
     name: name ?? this.name,
     description: description ?? this.description,
     stepType: stepType ?? this.stepType,

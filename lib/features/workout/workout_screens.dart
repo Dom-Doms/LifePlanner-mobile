@@ -164,10 +164,10 @@ class _WorkoutsListScreenState extends State<WorkoutsListScreen> {
   }
 
   Future<void> _openNewTemplate() async {
-    await Navigator.of(
+    final changed = await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const WorkoutEditorScreen()));
-    await _load();
+    if (changed == true) await _load();
   }
 }
 
@@ -412,12 +412,12 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
   }
 
   Future<void> _edit() async {
-    await Navigator.of(context).push(
+    final changed = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => WorkoutEditorScreen(templateId: widget.templateId),
       ),
     );
-    await _load();
+    if (changed == true) await _load();
   }
 
   Future<void> _delete() async {
@@ -1029,7 +1029,7 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
       } else {
         await workoutApi.createWorkoutTemplate(payload);
       }
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(true);
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {
@@ -1634,24 +1634,109 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
-                    ...runner.sequence.asMap().entries.map(
-                      (entry) => ListTile(
-                        selected: entry.key == runner.currentIndex,
-                        leading: CircleAvatar(child: Text('${entry.key + 1}')),
-                        title: Text(entry.value.name),
-                        subtitle: Text(
-                          entry.value.isTimed
-                              ? dates.compactDuration(
-                                  entry.value.durationSeconds,
-                                )
-                              : '${entry.value.reps ?? 1} reps',
-                        ),
-                      ),
-                    ),
+                    _runnerSequenceList(runner),
                   ],
                 );
               },
             ),
+    );
+  }
+
+  Widget _runnerSequenceList(WorkoutRunnerController runner) {
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      buildDefaultDragHandles: false,
+      itemCount: runner.sequence.length,
+      proxyDecorator: _runDragProxyDecorator,
+      onReorder: _reorderRunStep,
+      itemBuilder: (context, index) {
+        final step = runner.sequence[index];
+        final completed = index < runner.currentIndex;
+        final current = index == runner.currentIndex;
+        final canDrag =
+            !_busy && !runner.isFinished && index > runner.currentIndex;
+        final card = SectionCard(
+          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+          child: Row(
+            children: [
+              Icon(
+                canDrag
+                    ? Icons.drag_handle
+                    : completed
+                    ? Icons.check_circle_outline
+                    : current
+                    ? Icons.play_circle_outline
+                    : Icons.lock_outline,
+                color: current
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.outline,
+              ),
+              const SizedBox(width: 8),
+              CircleAvatar(child: Text('${index + 1}')),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      step.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: current
+                          ? Theme.of(context).textTheme.titleMedium
+                          : null,
+                    ),
+                    Text(
+                      [
+                        step.isTimed
+                            ? dates.compactDuration(step.durationSeconds)
+                            : '${step.reps ?? 1} reps',
+                        if (step.blockTitle != null)
+                          '${step.blockTitle} ${step.lap}/${step.totalLaps}',
+                        if (completed) 'Completato',
+                        if (current) 'In corso',
+                      ].join(' - '),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+        return Padding(
+          key: ValueKey(step.sequenceKey),
+          padding: const EdgeInsets.only(bottom: 8),
+          child: canDrag
+              ? ReorderableDelayedDragStartListener(index: index, child: card)
+              : card,
+        );
+      },
+    );
+  }
+
+  Widget _runDragProxyDecorator(
+    Widget child,
+    int index,
+    Animation<double> animation,
+  ) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        final value = Curves.easeOut.transform(animation.value);
+        return Transform.scale(
+          scale: 1 + value * 0.02,
+          child: Material(
+            elevation: 6,
+            color: Colors.transparent,
+            shadowColor: Theme.of(context).colorScheme.shadow,
+            child: child,
+          ),
+        );
+      },
+      child: child,
     );
   }
 
@@ -1710,6 +1795,7 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
     final workoutApi = AppScope.of(context).workoutApi;
     setState(() => _busy = true);
     try {
+      await _persistState();
       final run = runner.isPaused
           ? await workoutApi.resumeWorkoutRun(widget.runId)
           : await workoutApi.pauseWorkoutRun(widget.runId);
@@ -1731,6 +1817,14 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
 
   Future<void> _completeStep() async {
     _runner?.completeStep();
+    await _persistState();
+  }
+
+  Future<void> _reorderRunStep(int oldIndex, int newIndex) async {
+    final runner = _runner;
+    if (runner == null || _busy) return;
+    final changed = runner.reorderFutureStep(oldIndex, newIndex);
+    if (!changed) return;
     await _persistState();
   }
 
@@ -1763,9 +1857,9 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  Future<void> _persistState() async {
+  Future<bool> _persistState() async {
     final runner = _runner;
-    if (runner == null || runner.isFinished) return;
+    if (runner == null || runner.isFinished) return false;
     try {
       await AppScope.of(context).workoutApi.updateWorkoutRunState(
         runId: widget.runId,
@@ -1773,8 +1867,10 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
           status: runner.isPaused ? 'PAUSED' : 'IN_PROGRESS',
         ),
       );
+      return true;
     } catch (_) {
-      return;
+      debugPrint('[workout-runner] state persist failed runId=${widget.runId}');
+      return false;
     }
   }
 

@@ -223,6 +223,83 @@ void main() {
     );
   });
 
+  test('reorders top-level group and keeps save payload valid', () {
+    final draft = WorkoutEditorDraft(
+      name: 'Mixed',
+      description: '',
+      legacyExercises: const [],
+      topSteps: const [
+        WorkoutStepDto(
+          id: 10,
+          blockId: 99,
+          name: 'Warmup',
+          stepType: 'ACTIVE',
+          measurementType: 'TIME',
+          durationSeconds: 20,
+          sortOrder: 0,
+        ),
+        WorkoutStepDto(
+          id: 11,
+          name: 'Finisher',
+          stepType: 'ACTIVE',
+          measurementType: 'REPS',
+          reps: 12,
+          sortOrder: 2,
+        ),
+      ],
+      blocks: const [
+        WorkoutBlockDto(
+          id: 20,
+          title: 'Circuit',
+          sortOrder: 1,
+          repeatCount: 3,
+          color: 'blue',
+          collapsed: true,
+          steps: [
+            WorkoutStepDto(
+              id: 21,
+              blockId: 20,
+              name: 'Push up',
+              stepType: 'ACTIVE',
+              measurementType: 'REPS',
+              reps: 10,
+              sortOrder: 1,
+            ),
+            WorkoutStepDto(
+              id: 22,
+              blockId: 20,
+              name: 'Rest',
+              stepType: 'BREAK',
+              measurementType: 'TIME',
+              durationSeconds: 30,
+              sortOrder: 0,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    draft.reorderTopLevelItem(1, 0);
+    final payload = draft.toRequestPayload();
+    final blocks = (payload['blocks'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
+    final steps = (payload['steps'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
+    final block = blocks.single;
+    final blockSteps = (block['steps'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
+
+    expect(block['sortOrder'], 0);
+    expect(block['repeatCount'], 3);
+    expect(block['color'], 'blue');
+    expect(block['collapsed'], isTrue);
+    expect(steps.map((step) => step['sortOrder']), [1, 2]);
+    expect(steps.any((step) => step.containsKey('blockId')), isFalse);
+    expect(blockSteps.map((step) => step['name']), ['Rest', 'Push up']);
+    expect(blockSteps.map((step) => step['sortOrder']), [0, 1]);
+    expect(blockSteps.any((step) => step.containsKey('blockId')), isFalse);
+  });
+
   test('reorders steps inside a group by drag indexes', () {
     const block = WorkoutBlockDto(
       title: 'Circuit',
