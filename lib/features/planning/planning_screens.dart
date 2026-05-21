@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/network/api_client.dart';
 import '../../core/utils/date_utils.dart' as dates;
+import '../../data/models/planning_logic.dart';
 import '../../data/models/planning_models.dart';
 import '../../data/models/workout_models.dart';
 import '../../shared/widgets/app_cards.dart';
@@ -31,6 +32,7 @@ class _DayScreenState extends State<DayScreen> {
   List<CalendarEventResponse> _events = [];
   List<WorkoutSessionResponse> _sessions = [];
   List<WorkoutTemplateResponse> _templates = [];
+  int? _linkingEventId;
 
   @override
   void initState() {
@@ -43,6 +45,7 @@ class _DayScreenState extends State<DayScreen> {
   Widget build(BuildContext context) {
     if (_loading) return const LoadingView(label: 'Carico la giornata');
     final workoutCards = _visibleWorkoutCards();
+    final workoutInvites = _workoutInvitesNeedingLink();
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -115,14 +118,65 @@ class _DayScreenState extends State<DayScreen> {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
-          if (workoutCards.isEmpty)
+          if (workoutInvites.isEmpty && workoutCards.isEmpty)
             const EmptyState(
               title: 'Nessun allenamento',
               subtitle: 'Gli eventi workout collegati compariranno qui.',
             )
-          else
+          else ...[
+            ...workoutInvites.map(_workoutInviteCard),
             ...workoutCards.map(_workoutCard),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _workoutInviteCard(CalendarEventResponse event) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: SectionCard(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.fitness_center),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    event.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    event.description?.isNotEmpty == true
+                        ? event.description!
+                        : 'Invito workout: collega una tua scheda per allenarti.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 10),
+                  FilledButton.tonalIcon(
+                    onPressed: _linkingEventId == event.id
+                        ? null
+                        : () => _openWorkoutTemplatePicker(event),
+                    icon: _linkingEventId == event.id
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.add_link),
+                    label: const Text('Collega scheda'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -206,6 +260,7 @@ class _DayScreenState extends State<DayScreen> {
     final session = _findSession(sessionId);
     final templateId = event.workoutTemplateId ?? session?.templateId;
     final canOpenWorkout = event.type == 'WORKOUT' && templateId != null;
+    final canLinkWorkout = canLinkWorkoutTemplate(event);
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -288,6 +343,22 @@ class _DayScreenState extends State<DayScreen> {
                       icon: const Icon(Icons.play_arrow),
                       label: const Text('Apri'),
                     ),
+                  if (canLinkWorkout)
+                    FilledButton.icon(
+                      onPressed: _linkingEventId == event.id
+                          ? null
+                          : () {
+                              Navigator.of(sheetContext).pop();
+                              _openWorkoutTemplatePicker(event);
+                            },
+                      icon: _linkingEventId == event.id
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.add_link),
+                      label: const Text('Collega scheda'),
+                    ),
                 ],
               ),
             ],
@@ -295,6 +366,10 @@ class _DayScreenState extends State<DayScreen> {
         ),
       ),
     );
+  }
+
+  List<CalendarEventResponse> _workoutInvitesNeedingLink() {
+    return _events.where(canLinkWorkoutTemplate).toList();
   }
 
   List<_DayWorkoutCard> _visibleWorkoutCards() {
@@ -444,6 +519,54 @@ class _DayScreenState extends State<DayScreen> {
       ),
     );
     if (result == true) await _load();
+  }
+
+  Future<void> _openWorkoutTemplatePicker(CalendarEventResponse event) async {
+    final template = await showModalBottomSheet<WorkoutTemplateResponse>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => _WorkoutTemplatePickerSheet(
+        templates: _templates,
+        onCreate: () async {
+          Navigator.of(sheetContext).pop();
+          await _openNewWorkoutTemplate();
+        },
+      ),
+    );
+    if (!mounted || template == null) return;
+    await _linkWorkoutTemplate(event, template);
+  }
+
+  Future<void> _openNewWorkoutTemplate() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const WorkoutEditorScreen()));
+    if (mounted) await _load();
+  }
+
+  Future<void> _linkWorkoutTemplate(
+    CalendarEventResponse event,
+    WorkoutTemplateResponse template,
+  ) async {
+    setState(() {
+      _linkingEventId = event.id;
+      _error = null;
+    });
+    try {
+      await AppScope.read(context).planningApi.linkEventWorkout(
+        eventId: event.id,
+        templateId: template.id,
+      );
+      if (!mounted) return;
+      showSnack(context, 'Scheda collegata a ${event.title}');
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.message);
+      showSnack(context, error.message);
+    } finally {
+      if (mounted) setState(() => _linkingEventId = null);
+    }
   }
 
   Future<void> _deleteEvent(CalendarEventResponse event) async {
@@ -789,6 +912,80 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void _moveMonth(int delta) {
     setState(() => _month = DateTime(_month.year, _month.month + delta));
     _load();
+  }
+}
+
+class _WorkoutTemplatePickerSheet extends StatelessWidget {
+  const _WorkoutTemplatePickerSheet({
+    required this.templates,
+    required this.onCreate,
+  });
+
+  final List<WorkoutTemplateResponse> templates;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Collega scheda workout',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            if (templates.isEmpty) ...[
+              const EmptyState(
+                title: 'Nessuna scheda',
+                subtitle: 'Crea una scheda workout prima di collegarla.',
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onCreate,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Crea scheda'),
+                ),
+              ),
+            ] else ...[
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: templates.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final template = templates[index];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.fitness_center),
+                      title: Text(
+                        template.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        [
+                          dates.compactDuration(
+                            template.estimatedDurationSeconds,
+                          ),
+                          '${flattenWorkoutTemplate(template).length} step',
+                        ].join(' - '),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).pop(template),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 

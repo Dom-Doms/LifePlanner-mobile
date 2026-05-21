@@ -1,5 +1,6 @@
 import '../../core/network/api_client.dart';
 import '../models/json_helpers.dart';
+import '../models/planning_logic.dart';
 import '../models/planning_models.dart';
 
 class PlanningApi {
@@ -129,7 +130,7 @@ class PlanningApi {
   }) async {
     final data = await _client.postMap(
       '/events/$eventId/workout-link',
-      body: {'templateId': templateId},
+      body: workoutLinkPayload(templateId),
     );
     return CalendarEventResponse.fromJson(data);
   }
