@@ -9,6 +9,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
@@ -31,7 +34,12 @@ class MainActivity : FlutterActivity() {
                         val id = call.argument<Int>("id") ?: 1
                         val title = call.argument<String>("title") ?: "LifePlanner"
                         val body = call.argument<String>("body") ?: ""
-                        showNotification(id, title, body)
+                        val vibrate = call.argument<Boolean>("vibrate") ?: false
+                        showNotification(id, title, body, vibrate)
+                        result.success(null)
+                    }
+                    "vibrate" -> {
+                        vibrate()
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -44,11 +52,11 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "read" -> result.success(preferences.getString("session", null))
                     "write" -> {
-                        preferences.edit().putString("session", call.argument<String>("value")).apply()
+                        preferences.edit().putString("session", call.argument<String>("value")).commit()
                         result.success(null)
                     }
                     "clear" -> {
-                        preferences.edit().remove("session").apply()
+                        preferences.edit().remove("session").commit()
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -84,15 +92,21 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun showNotification(id: Int, title: String, body: String) {
-        if (!areNotificationsEnabled()) return
+    private fun showNotification(id: Int, title: String, body: String, vibrate: Boolean) {
+        if (!areNotificationsEnabled()) {
+            if (vibrate) vibrate()
+            return
+        }
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 notificationChannelId,
                 "LifePlanner workout",
                 NotificationManager.IMPORTANCE_HIGH
-            )
+            ).apply {
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 180, 90, 180)
+            }
             manager.createNotificationChannel(channel)
         }
 
@@ -117,7 +131,26 @@ class MainActivity : FlutterActivity() {
             .setContentText(body)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setVibrate(longArrayOf(0, 180, 90, 180))
             .build()
         manager.notify(id, notification)
+        if (vibrate) vibrate()
+    }
+
+    private fun vibrate() {
+        val pattern = longArrayOf(0, 180, 90, 180)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            manager.defaultVibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+        } else {
+            @Suppress("DEPRECATION")
+            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(pattern, -1)
+            }
+        }
     }
 }

@@ -66,10 +66,21 @@ class AuthController extends ChangeNotifier {
         final userJson = asMap(json['user']);
         if (token != null && userJson.isNotEmpty) {
           _applySession(token, UserResponse.fromJson(userJson));
-          await refreshProfile();
+          try {
+            await refreshProfile();
+          } on ApiException catch (error) {
+            if (error.statusCode == 401 || error.statusCode == 403) {
+              await logout();
+            } else {
+              debugPrint(
+                '[auth] profile refresh failed during restore; keeping cached session: ${error.message}',
+              );
+            }
+          }
         }
       }
-    } catch (_) {
+    } catch (error) {
+      debugPrint('[auth] session restore failed: $error');
       await logout();
     } finally {
       _restoring = false;

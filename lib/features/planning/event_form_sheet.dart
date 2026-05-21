@@ -7,6 +7,7 @@ import '../../data/models/auth_models.dart';
 import '../../data/models/planning_models.dart';
 import '../../data/models/workout_models.dart';
 import '../../shared/widgets/app_cards.dart';
+import 'event_form_logic.dart';
 
 class EventFormSheet extends StatefulWidget {
   const EventFormSheet({
@@ -30,15 +31,16 @@ class _EventFormSheetState extends State<EventFormSheet> {
   late final TextEditingController _title;
   late final TextEditingController _description;
   late final TextEditingController _location;
-  late final TextEditingController _startTime;
-  late final TextEditingController _endTime;
   late final TextEditingController _freeParticipant;
   late final TextEditingController _userSearch;
+  late final TextEditingController _recurrenceUntil;
   late String _type;
   late bool _allDay;
   late bool _reminderEnabled;
   late int _reminderMinutes;
   late String _recurrenceType;
+  late TimeOfDay? _startTime;
+  late TimeOfDay? _endTime;
   late int? _templateId;
   late List<ParticipantDto> _participants;
   List<UserResponse> _searchResults = [];
@@ -53,15 +55,20 @@ class _EventFormSheetState extends State<EventFormSheet> {
     _title = TextEditingController(text: event?.title ?? '');
     _description = TextEditingController(text: event?.description ?? '');
     _location = TextEditingController(text: event?.location ?? '');
-    _startTime = TextEditingController(text: (event?.startTime ?? '').take(5));
-    _endTime = TextEditingController(text: (event?.endTime ?? '').take(5));
     _freeParticipant = TextEditingController();
     _userSearch = TextEditingController();
+    _recurrenceUntil = TextEditingController(
+      text: event?.recurrenceUntil ?? '',
+    );
     _type = event?.type ?? widget.initialType ?? 'PERSONAL';
     _allDay = event?.allDay ?? false;
     _reminderEnabled = event?.reminderEnabled ?? false;
     _reminderMinutes = event?.reminderMinutesBefore ?? 30;
     _recurrenceType = event?.recurrenceType ?? 'NONE';
+    _startTime =
+        parseEventTime(event?.startTime) ?? const TimeOfDay(hour: 9, minute: 0);
+    _endTime =
+        parseEventTime(event?.endTime) ?? const TimeOfDay(hour: 10, minute: 0);
     _templateId = event?.workoutTemplateId;
     _participants = [...event?.participants ?? const []];
   }
@@ -71,10 +78,9 @@ class _EventFormSheetState extends State<EventFormSheet> {
     _title.dispose();
     _description.dispose();
     _location.dispose();
-    _startTime.dispose();
-    _endTime.dispose();
     _freeParticipant.dispose();
     _userSearch.dispose();
+    _recurrenceUntil.dispose();
     super.dispose();
   }
 
@@ -148,26 +154,12 @@ class _EventFormSheetState extends State<EventFormSheet> {
               onChanged: (value) => setState(() => _allDay = value),
             ),
             if (!_allDay)
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _startTime,
-                      decoration: const InputDecoration(
-                        labelText: 'Inizio HH:mm',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _endTime,
-                      decoration: const InputDecoration(
-                        labelText: 'Fine HH:mm',
-                      ),
-                    ),
-                  ),
-                ],
+              _EventTimePickerPanel(
+                start: _startTime,
+                end: _endTime,
+                onPickStart: () => _pickTime(isStart: true),
+                onPickEnd: () => _pickTime(isStart: false),
+                onDurationSelected: _applyDuration,
               ),
             const SizedBox(height: 12),
             TextField(
@@ -188,9 +180,25 @@ class _EventFormSheetState extends State<EventFormSheet> {
                 ),
                 DropdownMenuItem(value: 'MONTHLY', child: Text('Mensile')),
               ],
-              onChanged: (value) =>
-                  setState(() => _recurrenceType = value ?? 'NONE'),
+              onChanged: (value) => setState(() {
+                _recurrenceType = value ?? 'NONE';
+                if (_recurrenceType == 'NONE') _recurrenceUntil.clear();
+              }),
             ),
+            if (_recurrenceType != 'NONE') ...[
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Ripeti fino al'),
+                subtitle: Text(
+                  _recurrenceUntil.text.isEmpty
+                      ? 'Scegli data fine ricorrenza'
+                      : _recurrenceUntil.text,
+                ),
+                trailing: const Icon(Icons.event),
+                onTap: _pickRecurrenceUntil,
+              ),
+            ],
             const SizedBox(height: 12),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -356,25 +364,85 @@ class _EventFormSheetState extends State<EventFormSheet> {
     });
   }
 
+  Future<void> _pickTime({required bool isStart}) async {
+    final current =
+        (isStart ? _startTime : _endTime) ??
+        const TimeOfDay(hour: 9, minute: 0);
+    final picked = await showTimePicker(context: context, initialTime: current);
+    if (!mounted || picked == null) return;
+    setState(() {
+      if (isStart) {
+        _startTime = picked;
+        final end = _endTime;
+        if (end == null ||
+            eventMinutesOfDay(end) <= eventMinutesOfDay(picked)) {
+          _endTime = addEventDuration(picked, const Duration(hours: 1));
+        }
+      } else {
+        _endTime = picked;
+      }
+    });
+  }
+
+  void _applyDuration(Duration duration) {
+    final start = _startTime ?? const TimeOfDay(hour: 9, minute: 0);
+    setState(() {
+      _startTime = start;
+      _endTime = addEventDuration(start, duration);
+    });
+  }
+
+  Future<void> _pickRecurrenceUntil() async {
+    final initial =
+        DateTime.tryParse(_recurrenceUntil.text) ??
+        widget.date.add(const Duration(days: 7));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(widget.date) ? widget.date : initial,
+      firstDate: widget.date,
+      lastDate: widget.date.add(const Duration(days: 365 * 3)),
+    );
+    if (!mounted || picked == null) return;
+    setState(() => _recurrenceUntil.text = dates.formatDate(picked));
+  }
+
   Future<void> _save() async {
+    final timeError = validateEventTimes(
+      allDay: _allDay,
+      start: _startTime,
+      end: _endTime,
+    );
+    if (_title.text.trim().isEmpty) {
+      setState(() => _error = 'Inserisci un titolo.');
+      return;
+    }
+    if (timeError != null) {
+      setState(() => _error = timeError);
+      return;
+    }
+    if (_recurrenceType != 'NONE' && _recurrenceUntil.text.trim().isEmpty) {
+      setState(() => _error = 'Inserisci la data di fine ripetizione.');
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      final payload = calendarEventRequest(
+      final payload = buildEventFormPayload(
         title: _title.text.trim(),
         description: _description.text.trim(),
         eventDate: dates.formatDate(widget.date),
-        startTime: _startTime.text.trim(),
-        endTime: _endTime.text.trim(),
+        start: _startTime,
+        end: _endTime,
         allDay: _allDay,
         type: _type,
         location: _location.text.trim(),
         workoutTemplateId: _type == 'WORKOUT' ? _templateId : null,
         recurrenceType: _recurrenceType,
+        recurrenceUntil: _recurrenceUntil.text.trim(),
         reminderEnabled: _reminderEnabled,
-        reminderMinutesBefore: _reminderMinutes,
+        reminderMinutes: _reminderMinutes,
         participants: _participants,
       );
       if (widget.initial == null) {
@@ -393,6 +461,93 @@ class _EventFormSheetState extends State<EventFormSheet> {
   }
 }
 
-extension on String {
-  String take(int count) => length <= count ? this : substring(0, count);
+class _EventTimePickerPanel extends StatelessWidget {
+  const _EventTimePickerPanel({
+    required this.start,
+    required this.end,
+    required this.onPickStart,
+    required this.onPickEnd,
+    required this.onDurationSelected,
+  });
+
+  final TimeOfDay? start;
+  final TimeOfDay? end;
+  final VoidCallback onPickStart;
+  final VoidCallback onPickEnd;
+  final ValueChanged<Duration> onDurationSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SectionCard(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _TimeButton(
+                  label: 'Inizio',
+                  value: start == null ? '--:--' : formatEventTime(start!),
+                  onTap: onPickStart,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _TimeButton(
+                  label: 'Fine',
+                  value: end == null ? '--:--' : formatEventTime(end!),
+                  onTap: onPickEnd,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: eventDurationQuickChoices
+                .map(
+                  (duration) => ActionChip(
+                    label: Text(formatEventDurationLabel(duration)),
+                    onPressed: () => onDurationSelected(duration),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimeButton extends StatelessWidget {
+  const _TimeButton({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        alignment: Alignment.centerLeft,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 2),
+          Text(value, style: Theme.of(context).textTheme.titleMedium),
+        ],
+      ),
+    );
+  }
 }

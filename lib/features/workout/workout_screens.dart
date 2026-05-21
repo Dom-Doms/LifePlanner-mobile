@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -1492,7 +1493,7 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
   Widget build(BuildContext context) {
     final runner = _runner;
     return Scaffold(
-      appBar: AppBar(title: const Text('Workout run')),
+      backgroundColor: const Color(0xFF07111F),
       body: _loading || runner == null
           ? _loading
                 ? const LoadingView(label: 'Carico runner')
@@ -1510,6 +1511,33 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                 return ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                   children: [
+                    Row(
+                      children: [
+                        IconButton.filledTonal(
+                          onPressed: _busy ? null : _cancel,
+                          icon: const Icon(Icons.close),
+                          tooltip: 'Annulla',
+                        ),
+                        const Spacer(),
+                        Text(
+                          dates.compactDuration(runner.elapsedSeconds),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(color: Colors.white),
+                        ),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: _busy
+                              ? null
+                              : () => _showRunnerSequence(runner),
+                          icon: const Icon(Icons.format_list_bulleted),
+                          label: const Text('Lista'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     if (_error != null)
                       ErrorPanel(message: _error!, onRetry: _load),
                     SectionCard(
@@ -1518,6 +1546,8 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                           Text(
                             step?.name ?? 'Workout completato',
                             textAlign: TextAlign.center,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
                           if (step?.description?.isNotEmpty == true) ...[
@@ -1531,15 +1561,15 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                           ],
                           const SizedBox(height: 12),
                           SizedBox(
-                            width: 180,
-                            height: 180,
+                            width: 220,
+                            height: 220,
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
                                 if (step?.isTimed == true)
                                   CircularProgressIndicator(
                                     value: runner.progress,
-                                    strokeWidth: 10,
+                                    strokeWidth: 14,
                                   )
                                 else
                                   Container(
@@ -1561,10 +1591,10 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                                           ? dates.compactDuration(
                                               runner.remainingTime,
                                             )
-                                          : '${step?.reps ?? 0} reps',
+                                          : 'x${step?.reps ?? 0}',
                                       style: Theme.of(
                                         context,
-                                      ).textTheme.titleLarge,
+                                      ).textTheme.displaySmall,
                                     ),
                                     if (step?.isTimed == true)
                                       Text(
@@ -1583,6 +1613,10 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                             ),
                           if (runner.nextStep != null)
                             Text('Prossimo: ${runner.nextStep!.name}'),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${runner.completedSteps} / ${runner.sequence.length} step - ${math.max(0, runner.sequence.length - runner.currentIndex - 1)} mancanti',
+                          ),
                         ],
                       ),
                     ),
@@ -1631,7 +1665,9 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                     const SizedBox(height: 16),
                     Text(
                       'Sequenza',
-                      style: Theme.of(context).textTheme.titleMedium,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.titleMedium?.copyWith(color: Colors.white),
                     ),
                     const SizedBox(height: 8),
                     _runnerSequenceList(runner),
@@ -1639,6 +1675,29 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                 );
               },
             ),
+    );
+  }
+
+  Future<void> _showRunnerSequence(WorkoutRunnerController runner) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.72,
+        minChildSize: 0.35,
+        maxChildSize: 0.92,
+        builder: (context, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+          children: [
+            Text('Sequenza', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            _runnerSequenceList(runner),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1888,6 +1947,7 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
       body: step.isBreak
           ? 'Riprendi con il prossimo esercizio.'
           : '${step.name} completato.',
+      vibrate: true,
     );
   }
 

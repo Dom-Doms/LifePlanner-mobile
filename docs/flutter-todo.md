@@ -5,6 +5,7 @@ Questa app usa solo endpoint gia presenti nel backend LifePlanner e platform cha
 ## Da completare quando ci sono decisioni o endpoint dedicati
 
 - Push remoto nativo: il backend espone Web Push VAPID per PWA, non token FCM/APNs. L'app Flutter implementa notifiche native locali per il workout, ma non puo ricevere reminder server-side a app chiusa senza estensione backend.
+- Reminder locali schedulati: il platform channel attuale espone notifiche immediate e vibrazione per workout foreground. La programmazione locale persistente degli eventi a app chiusa richiede un alarm scheduler nativo dedicato oppure un plugin di scheduling, senza nuovi endpoint.
 - Deep link reset password: la schermata esiste, ma serve decidere schema nativo o Universal/App Links per aprire automaticamente `/reset-password?token=...` dalle email.
 - Timer workout in background affidabile: il runner mantiene timer foreground e salva snapshot sul backend. Foreground service Android/background task iOS richiedono una decisione tecnica separata.
 - Offline mode: la PWA attuale usa API `NetworkOnly`; qui non e stata introdotta cache offline business per non inventare logiche nuove.

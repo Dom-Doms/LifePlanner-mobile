@@ -29,13 +29,23 @@ class LocalNotificationService {
     required int id,
     required String title,
     required String body,
+    bool vibrate = false,
   }) async {
     try {
       await _channel.invokeMethod<void>('show', {
         'id': id,
         'title': title,
         'body': body,
+        'vibrate': vibrate,
       });
+    } on MissingPluginException {
+      return;
+    }
+  }
+
+  Future<void> vibrate() async {
+    try {
+      await _channel.invokeMethod<void>('vibrate');
     } on MissingPluginException {
       return;
     }
