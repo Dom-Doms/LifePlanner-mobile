@@ -59,6 +59,28 @@ class ExecutableWorkoutStep {
   );
 }
 
+class RunnerSequenceItem {
+  const RunnerSequenceItem({
+    required this.key,
+    required this.title,
+    required this.steps,
+    required this.startIndex,
+    required this.endIndex,
+    required this.isGroup,
+    this.subtitle,
+  });
+
+  final String key;
+  final String title;
+  final String? subtitle;
+  final List<ExecutableWorkoutStep> steps;
+  final int startIndex;
+  final int endIndex;
+  final bool isGroup;
+
+  bool get isSingleStep => !isGroup;
+}
+
 List<ExecutableWorkoutStep> flattenWorkoutTemplate(
   WorkoutTemplateResponse template,
 ) {
@@ -137,6 +159,8 @@ class WorkoutRunnerController extends ChangeNotifier {
   final VoidCallback? onWorkoutComplete;
 
   List<ExecutableWorkoutStep> get sequence => _sequence;
+  List<RunnerSequenceItem> get reorderableItems =>
+      buildRunnerSequenceItems(_sequence);
   ExecutableWorkoutStep? get currentStep =>
       currentIndex >= 0 && currentIndex < _sequence.length
       ? _sequence[currentIndex]
@@ -216,6 +240,29 @@ class WorkoutRunnerController extends ChangeNotifier {
     final moved = steps.removeAt(oldIndex);
     steps.insert(targetIndex, moved);
     _sequence = _withDisplayOrder(steps);
+    notifyListeners();
+    return true;
+  }
+
+  bool reorderFutureItem(int oldIndex, int newIndex) {
+    final items = reorderableItems;
+    if (oldIndex < 0 || oldIndex >= items.length || items.length < 2) {
+      return false;
+    }
+    final movedItem = items[oldIndex];
+    if (movedItem.startIndex <= currentIndex) return false;
+
+    var targetIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
+    targetIndex = targetIndex.clamp(0, items.length - 1);
+    while (targetIndex < items.length &&
+        items[targetIndex].endIndex <= currentIndex) {
+      targetIndex += 1;
+    }
+    if (targetIndex >= items.length || targetIndex == oldIndex) return false;
+
+    final moved = items.removeAt(oldIndex);
+    items.insert(targetIndex, moved);
+    _sequence = _withDisplayOrder(items.expand((item) => item.steps).toList());
     notifyListeners();
     return true;
   }
@@ -309,6 +356,61 @@ class WorkoutRunnerController extends ChangeNotifier {
     _timer?.cancel();
     super.dispose();
   }
+}
+
+List<RunnerSequenceItem> buildRunnerSequenceItems(
+  List<ExecutableWorkoutStep> sequence,
+) {
+  final items = <RunnerSequenceItem>[];
+  var index = 0;
+  while (index < sequence.length) {
+    final step = sequence[index];
+    if (step.blockIndex < 0) {
+      items.add(
+        RunnerSequenceItem(
+          key: step.sequenceKey,
+          title: step.name,
+          subtitle: step.isTimed
+              ? '${step.durationSeconds ?? 0} sec'
+              : '${step.reps ?? 1} reps',
+          steps: [step],
+          startIndex: index,
+          endIndex: index,
+          isGroup: false,
+        ),
+      );
+      index += 1;
+      continue;
+    }
+
+    final start = index;
+    final blockIndex = step.blockIndex;
+    final blockTitle = step.blockTitle ?? 'Gruppo';
+    while (index < sequence.length &&
+        sequence[index].blockIndex == blockIndex &&
+        sequence[index].blockTitle == step.blockTitle) {
+      index += 1;
+    }
+    final steps = sequence.sublist(start, index);
+    final uniqueNames = <String>[];
+    for (final item in steps) {
+      if (!uniqueNames.contains(item.name)) uniqueNames.add(item.name);
+    }
+    items.add(
+      RunnerSequenceItem(
+        key:
+            'group:$blockIndex:${steps.first.sequenceKey}:${steps.last.sequenceKey}',
+        title: blockTitle,
+        subtitle:
+            '${steps.first.totalLaps} giri - ${uniqueNames.take(3).join(', ')}',
+        steps: steps,
+        startIndex: start,
+        endIndex: index - 1,
+        isGroup: true,
+      ),
+    );
+  }
+  return items;
 }
 
 class _SequenceItem {

@@ -48,6 +48,53 @@ void main() {
     expect(canLinkWorkoutTemplate(event), isFalse);
   });
 
+  test('shows change template for already linked workout invite', () {
+    final event = _event(
+      type: 'WORKOUT',
+      owner: false,
+      participant: true,
+      needsWorkoutLink: false,
+      linkedWorkoutSessionId: 42,
+      workoutTemplateId: 9,
+    );
+
+    expect(canChangeWorkoutTemplate(event), isTrue);
+    expect(canLinkOrChangeWorkoutTemplate(event), isTrue);
+    expect(workoutLinkActionLabel(event), 'Cambia scheda');
+  });
+
+  test('uses participant linked session before owner workout session', () {
+    final event = _event(
+      type: 'WORKOUT',
+      owner: false,
+      participant: true,
+      needsWorkoutLink: false,
+      linkedWorkoutSessionId: 42,
+      ownerWorkoutSessionId: 7,
+      workoutSessionId: 42,
+      workoutTemplateId: 9,
+    );
+
+    expect(effectiveWorkoutSessionId(event), 42);
+    expect(effectiveWorkoutTemplateId(event, 9), 9);
+  });
+
+  test('uses owner workout session for owner event', () {
+    final event = _event(
+      type: 'WORKOUT',
+      owner: true,
+      participant: false,
+      needsWorkoutLink: false,
+      ownerWorkoutSessionId: 7,
+      workoutSessionId: 7,
+      workoutTemplateId: 3,
+    );
+
+    expect(effectiveWorkoutSessionId(event), 7);
+    expect(effectiveWorkoutTemplateId(event, 3), 3);
+    expect(canChangeWorkoutTemplate(event), isFalse);
+  });
+
   test(
     'does not show template link for free text participant payload only',
     () {
@@ -76,6 +123,9 @@ CalendarEventResponse _event({
   required bool participant,
   required bool needsWorkoutLink,
   int? linkedWorkoutSessionId,
+  int? ownerWorkoutSessionId,
+  int? workoutSessionId,
+  int? workoutTemplateId,
   List<ParticipantDto> participants = const [],
 }) {
   return CalendarEventResponse(
@@ -89,6 +139,9 @@ CalendarEventResponse _event({
     participant: participant,
     needsWorkoutLink: needsWorkoutLink,
     linkedWorkoutSessionId: linkedWorkoutSessionId,
+    ownerWorkoutSessionId: ownerWorkoutSessionId,
+    workoutSessionId: workoutSessionId,
+    workoutTemplateId: workoutTemplateId,
     participants: participants,
   );
 }

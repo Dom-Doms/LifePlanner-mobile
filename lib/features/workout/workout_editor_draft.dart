@@ -363,7 +363,7 @@ int estimateStep(WorkoutStepDto step) {
 Map<String, dynamic> workoutBlockRequestPayload(WorkoutBlockDto block) {
   final steps = normalizeSteps(block.steps);
   return withoutNulls({
-    'id': block.id,
+    'id': positiveId(block.id),
     'title': block.title.trim(),
     'sortOrder': block.sortOrder,
     'repeatCount': normalizeRepeatCount(block.repeatCount),
@@ -391,7 +391,7 @@ Map<String, dynamic> workoutStepRequestPayload(
       ? 'TIME'
       : 'REPS';
   return withoutNulls({
-    'id': step.id,
+    'id': positiveId(step.id),
     'blockId': null,
     'name': step.name.trim(),
     'description': step.description?.trim(),
@@ -407,6 +407,8 @@ Map<String, dynamic> workoutStepRequestPayload(
     'active': step.active,
   });
 }
+
+int? positiveId(int? id) => id == null || id <= 0 ? null : id;
 
 WorkoutStepDto _normalizeLoadedStep(WorkoutStepDto step) {
   final stepType = step.stepType == 'BREAK' ? 'BREAK' : 'ACTIVE';

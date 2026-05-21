@@ -345,6 +345,93 @@ void main() {
       'Bench',
     ]);
   });
+
+  test('builds grouped runner items from flattened sequence', () {
+    final sequence = flattenWorkoutTemplate(_groupTemplate());
+    final items = buildRunnerSequenceItems(sequence);
+
+    expect(items.map((item) => item.title), ['Warmup', 'Legs']);
+    expect(items.first.isSingleStep, isTrue);
+    expect(items.last.isGroup, isTrue);
+    expect(items.last.steps.map((step) => step.name), [
+      'Curl',
+      'Rest',
+      'Press',
+      'Curl',
+      'Rest',
+      'Press',
+    ]);
+  });
+
+  test('runner reorders future group as one unit', () {
+    final runner = WorkoutRunnerController(run: _runFor(_groupTemplate()));
+    addTearDown(runner.dispose);
+
+    runner.reorderFutureItem(1, 0);
+
+    expect(runner.currentStep?.name, 'Warmup');
+    expect(runner.sequence.map((step) => step.name), [
+      'Warmup',
+      'Curl',
+      'Rest',
+      'Press',
+      'Curl',
+      'Rest',
+      'Press',
+    ]);
+  });
+
+  test('runner next follows reordered grouped order', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        WorkoutTemplateResponse(
+          id: 43,
+          name: 'Grouped',
+          active: true,
+          exercises: const [],
+          steps: const [
+            WorkoutStepDto(
+              name: 'Warmup',
+              stepType: 'ACTIVE',
+              measurementType: 'REPS',
+              reps: 10,
+              sortOrder: 0,
+            ),
+            WorkoutStepDto(
+              name: 'Finisher',
+              stepType: 'ACTIVE',
+              measurementType: 'REPS',
+              reps: 12,
+              sortOrder: 2,
+            ),
+          ],
+          blocks: const [
+            WorkoutBlockDto(
+              title: 'Legs',
+              sortOrder: 1,
+              repeatCount: 1,
+              steps: [
+                WorkoutStepDto(
+                  name: 'Curl',
+                  stepType: 'ACTIVE',
+                  measurementType: 'REPS',
+                  reps: 10,
+                  sortOrder: 0,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    addTearDown(runner.dispose);
+
+    runner.reorderFutureItem(2, 1);
+    runner.completeStep();
+
+    expect(runner.currentStep?.name, 'Finisher');
+    expect(runner.nextStep?.name, 'Curl');
+  });
 }
 
 WorkoutTemplateResponse _template(List<WorkoutStepDto> steps) {
@@ -354,6 +441,54 @@ WorkoutTemplateResponse _template(List<WorkoutStepDto> steps) {
     active: true,
     exercises: const [],
     steps: steps,
+  );
+}
+
+WorkoutTemplateResponse _groupTemplate() {
+  return const WorkoutTemplateResponse(
+    id: 43,
+    name: 'Grouped',
+    active: true,
+    exercises: [],
+    steps: [
+      WorkoutStepDto(
+        name: 'Warmup',
+        stepType: 'ACTIVE',
+        measurementType: 'REPS',
+        reps: 10,
+        sortOrder: 0,
+      ),
+    ],
+    blocks: [
+      WorkoutBlockDto(
+        title: 'Legs',
+        sortOrder: 1,
+        repeatCount: 2,
+        steps: [
+          WorkoutStepDto(
+            name: 'Curl',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 10,
+            sortOrder: 0,
+          ),
+          WorkoutStepDto(
+            name: 'Rest',
+            stepType: 'BREAK',
+            measurementType: 'TIME',
+            durationSeconds: 30,
+            sortOrder: 1,
+          ),
+          WorkoutStepDto(
+            name: 'Press',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 10,
+            sortOrder: 2,
+          ),
+        ],
+      ),
+    ],
   );
 }
 

@@ -300,6 +300,42 @@ void main() {
     expect(blockSteps.any((step) => step.containsKey('blockId')), isFalse);
   });
 
+  test('drops temporary ids from group save payload', () {
+    final draft = WorkoutEditorDraft(
+      name: 'Temporary',
+      description: '',
+      legacyExercises: const [],
+      topSteps: const [],
+      blocks: const [
+        WorkoutBlockDto(
+          id: -1,
+          title: 'Circuit',
+          sortOrder: 0,
+          repeatCount: 2,
+          steps: [
+            WorkoutStepDto(
+              id: -10,
+              name: 'Squat',
+              stepType: 'ACTIVE',
+              measurementType: 'REPS',
+              reps: 8,
+              sortOrder: 0,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final block =
+        (draft.toRequestPayload()['blocks'] as List<dynamic>).single
+            as Map<String, dynamic>;
+    final step =
+        (block['steps'] as List<dynamic>).single as Map<String, dynamic>;
+
+    expect(block.containsKey('id'), isFalse);
+    expect(step.containsKey('id'), isFalse);
+  });
+
   test('reorders steps inside a group by drag indexes', () {
     const block = WorkoutBlockDto(
       title: 'Circuit',

@@ -1643,19 +1643,24 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
   }
 
   Widget _runnerSequenceList(WorkoutRunnerController runner) {
+    final items = runner.reorderableItems;
     return ReorderableListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       buildDefaultDragHandles: false,
-      itemCount: runner.sequence.length,
+      itemCount: items.length,
       proxyDecorator: _runDragProxyDecorator,
       onReorder: _reorderRunStep,
       itemBuilder: (context, index) {
-        final step = runner.sequence[index];
-        final completed = index < runner.currentIndex;
-        final current = index == runner.currentIndex;
+        final item = items[index];
+        final completed = item.endIndex < runner.currentIndex;
+        final current =
+            runner.currentIndex >= item.startIndex &&
+            runner.currentIndex <= item.endIndex;
         final canDrag =
-            !_busy && !runner.isFinished && index > runner.currentIndex;
+            !_busy &&
+            !runner.isFinished &&
+            item.startIndex > runner.currentIndex;
         final card = SectionCard(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
           child: Row(
@@ -1673,14 +1678,19 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                     : Theme.of(context).colorScheme.outline,
               ),
               const SizedBox(width: 8),
-              CircleAvatar(child: Text('${index + 1}')),
+              CircleAvatar(
+                child: Icon(
+                  item.isGroup ? Icons.repeat : Icons.fitness_center,
+                  size: 18,
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      step.name,
+                      item.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: current
@@ -1689,11 +1699,8 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
                     ),
                     Text(
                       [
-                        step.isTimed
-                            ? dates.compactDuration(step.durationSeconds)
-                            : '${step.reps ?? 1} reps',
-                        if (step.blockTitle != null)
-                          '${step.blockTitle} ${step.lap}/${step.totalLaps}',
+                        if (item.subtitle?.isNotEmpty == true) item.subtitle!,
+                        if (item.isGroup) '${item.steps.length} step',
                         if (completed) 'Completato',
                         if (current) 'In corso',
                       ].join(' - '),
@@ -1707,7 +1714,7 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
           ),
         );
         return Padding(
-          key: ValueKey(step.sequenceKey),
+          key: ValueKey(item.key),
           padding: const EdgeInsets.only(bottom: 8),
           child: canDrag
               ? ReorderableDelayedDragStartListener(index: index, child: card)
@@ -1823,7 +1830,7 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
   Future<void> _reorderRunStep(int oldIndex, int newIndex) async {
     final runner = _runner;
     if (runner == null || _busy) return;
-    final changed = runner.reorderFutureStep(oldIndex, newIndex);
+    final changed = runner.reorderFutureItem(oldIndex, newIndex);
     if (!changed) return;
     await _persistState();
   }

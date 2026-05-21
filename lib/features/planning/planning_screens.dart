@@ -43,116 +43,92 @@ class _DayScreenState extends State<DayScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return _loadingView(context);
+    if (_loading) {
+      return _daySurface(const LoadingView(label: 'Carico giornata...'));
+    }
     final workoutCards = _visibleWorkoutCards();
     final workoutInvites = _workoutInvitesNeedingLink();
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-        children: [
-          Row(
-            children: [
-              IconButton(
-                onPressed: () => _moveDay(-1),
-                icon: const Icon(Icons.chevron_left),
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(
-                      '${dates.weekdayLabel(_date)} ${_date.day}',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    Text(dates.formatDate(_date)),
-                  ],
+    return _daySurface(
+      RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () => _moveDay(-1),
+                  icon: const Icon(Icons.chevron_left),
                 ),
-              ),
-              IconButton(
-                onPressed: () => _moveDay(1),
-                icon: const Icon(Icons.chevron_right),
-              ),
+                Expanded(child: _DayHeader(date: _date)),
+                IconButton(
+                  onPressed: () => _moveDay(1),
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              ErrorPanel(message: _error!, onRetry: _load),
             ],
-          ),
-          if (_error != null) ...[
             const SizedBox(height: 12),
-            ErrorPanel(message: _error!, onRetry: _load),
-          ],
-          const SizedBox(height: 12),
-          _ContextCard(
-            plan: _plan,
-            contexts: _contexts,
-            onSelected: _setContext,
-            onCreate: _createContext,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _openEventForm(type: 'PERSONAL'),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Evento'),
+            _ContextCard(
+              plan: _plan,
+              contexts: _contexts,
+              onSelected: _setContext,
+              onCreate: _createContext,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _openEventForm(type: 'PERSONAL'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Evento'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: () => _openEventForm(type: 'WORKOUT'),
-                  icon: const Icon(Icons.fitness_center),
-                  label: const Text('Workout'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => _openEventForm(type: 'WORKOUT'),
+                    icon: const Icon(Icons.fitness_center),
+                    label: const Text('Workout'),
+                  ),
                 ),
-              ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _DayTimelineCard(
+              date: _date,
+              events: _events,
+              onEventSelected: _showEventActions,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Dettaglio allenamento',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            if (workoutInvites.isEmpty && workoutCards.isEmpty)
+              const EmptyState(
+                title: 'Nessun allenamento',
+                subtitle: 'Gli eventi workout collegati compariranno qui.',
+              )
+            else ...[
+              ...workoutInvites.map(_workoutInviteCard),
+              ...workoutCards.map(_workoutCard),
             ],
-          ),
-          const SizedBox(height: 16),
-          _DayTimelineCard(
-            date: _date,
-            events: _events,
-            onEventSelected: _showEventActions,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Dettaglio allenamento',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          if (workoutInvites.isEmpty && workoutCards.isEmpty)
-            const EmptyState(
-              title: 'Nessun allenamento',
-              subtitle: 'Gli eventi workout collegati compariranno qui.',
-            )
-          else ...[
-            ...workoutInvites.map(_workoutInviteCard),
-            ...workoutCards.map(_workoutCard),
           ],
-        ],
+        ),
       ),
     );
   }
 
-  Widget _loadingView(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox.square(
-                dimension: 24,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Carico giornata...',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
-        ),
-      ),
+  Widget _daySurface(Widget child) {
+    return Material(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: SafeArea(top: false, bottom: false, child: child),
     );
   }
 
@@ -194,7 +170,7 @@ class _DayScreenState extends State<DayScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.add_link),
-                    label: const Text('Collega scheda'),
+                    label: Text(workoutLinkActionLabel(event)),
                   ),
                 ],
               ),
@@ -216,64 +192,87 @@ class _DayScreenState extends State<DayScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: SectionCard(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: card.templateId == null
-              ? null
-              : () => _openWorkoutDetail(
-                  card.templateId!,
-                  workoutSessionId: card.session.id,
-                  initialTemplate: card.template,
-                ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.fitness_center),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      card.session.participants
-                              .map((item) => item.displayName)
-                              .where((item) => item.isNotEmpty)
-                              .join(', ')
-                              .ifBlank(card.template?.description ?? '') ??
-                          '',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: card.templateId == null
+                  ? null
+                  : () => _openWorkoutDetail(
+                      card.templateId!,
+                      workoutSessionId: card.session.id,
+                      initialTemplate: card.template,
                     ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.fitness_center),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (card.event.completed == true)
-                          const Chip(
-                            visualDensity: VisualDensity.compact,
-                            label: Text('Completato'),
-                          ),
-                        Chip(
-                          visualDensity: VisualDensity.compact,
-                          label: Text('$stepCount esercizi'),
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        if (duration != null)
-                          Chip(
-                            visualDensity: VisualDensity.compact,
-                            label: Text(duration),
-                          ),
+                        const SizedBox(height: 4),
+                        Text(
+                          card.session.participants
+                                  .map((item) => item.displayName)
+                                  .where((item) => item.isNotEmpty)
+                                  .join(', ')
+                                  .ifBlank(card.template?.description ?? '') ??
+                              '',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            if (card.event.completed == true)
+                              const Chip(
+                                visualDensity: VisualDensity.compact,
+                                label: Text('Completato'),
+                              ),
+                            Chip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text('$stepCount esercizi'),
+                            ),
+                            if (duration != null)
+                              Chip(
+                                visualDensity: VisualDensity.compact,
+                                label: Text(duration),
+                              ),
+                          ],
+                        ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right),
+                ],
               ),
-              const SizedBox(width: 4),
-              const Icon(Icons.chevron_right),
+            ),
+            if (canChangeWorkoutTemplate(card.event)) ...[
+              const SizedBox(height: 10),
+              FilledButton.tonalIcon(
+                onPressed: _linkingEventId == card.event.id
+                    ? null
+                    : () => _openWorkoutTemplatePicker(card.event),
+                icon: _linkingEventId == card.event.id
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.swap_horiz),
+                label: const Text('Cambia scheda'),
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -282,9 +281,9 @@ class _DayScreenState extends State<DayScreen> {
   Future<void> _showEventActions(CalendarEventResponse event) async {
     final sessionId = _eventWorkoutSessionId(event);
     final session = _findSession(sessionId);
-    final templateId = event.workoutTemplateId ?? session?.templateId;
+    final templateId = effectiveWorkoutTemplateId(event, session?.templateId);
     final canOpenWorkout = event.type == 'WORKOUT' && templateId != null;
-    final canLinkWorkout = canLinkWorkoutTemplate(event);
+    final canLinkWorkout = canLinkOrChangeWorkoutTemplate(event);
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -381,7 +380,7 @@ class _DayScreenState extends State<DayScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.add_link),
-                      label: const Text('Collega scheda'),
+                      label: Text(workoutLinkActionLabel(event)),
                     ),
                 ],
               ),
@@ -404,7 +403,7 @@ class _DayScreenState extends State<DayScreen> {
       if (event.type != 'WORKOUT' || sessionId == null) continue;
       final session = sessionsById[sessionId];
       if (session == null) continue;
-      final templateId = event.workoutTemplateId ?? session.templateId;
+      final templateId = effectiveWorkoutTemplateId(event, session.templateId);
       cards.add(
         _DayWorkoutCard(
           event: event,
@@ -418,9 +417,7 @@ class _DayScreenState extends State<DayScreen> {
   }
 
   int? _eventWorkoutSessionId(CalendarEventResponse event) =>
-      event.linkedWorkoutSessionId ??
-      event.ownerWorkoutSessionId ??
-      event.workoutSessionId;
+      effectiveWorkoutSessionId(event);
 
   WorkoutSessionResponse? _findSession(int? sessionId) {
     if (sessionId == null) return null;
@@ -625,6 +622,32 @@ class _DayScreenState extends State<DayScreen> {
   void _moveDay(int delta) {
     setState(() => _date = _date.add(Duration(days: delta)));
     _load();
+  }
+}
+
+class _DayHeader extends StatelessWidget {
+  const _DayHeader({required this.date});
+
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          '${dates.weekdayLabel(date)} ${date.day}',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 2),
+        Text(
+          dates.formatDate(date),
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
   }
 }
 
