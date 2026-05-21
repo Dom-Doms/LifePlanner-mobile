@@ -6,9 +6,9 @@ import '../../core/app_scope.dart';
 import '../../core/network/api_client.dart';
 import '../../core/utils/date_utils.dart' as dates;
 import '../../data/models/auth_models.dart';
-import '../../data/models/json_helpers.dart';
 import '../../data/models/workout_models.dart';
 import '../../shared/widgets/app_cards.dart';
+import 'workout_editor_draft.dart';
 import 'workout_runner_controller.dart';
 
 class WorkoutsListScreen extends StatefulWidget {
@@ -442,22 +442,31 @@ class WorkoutEditorScreen extends StatefulWidget {
   State<WorkoutEditorScreen> createState() => _WorkoutEditorScreenState();
 }
 
+enum _WorkoutEditorStatus { loading, loaded, empty, error }
+
 class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
   final _name = TextEditingController();
   final _description = TextEditingController();
-  bool _loading = false;
+  var _status = _WorkoutEditorStatus.empty;
   bool _saving = false;
   String? _error;
-  List<WorkoutStepDto> _topSteps = [];
-  List<WorkoutBlockDto> _blocks = [];
-  List<WorkoutExerciseDto> _legacyExercises = [];
+  WorkoutEditorDraft? _draft;
 
   bool get _editing => widget.templateId != null;
+  bool get _canSave =>
+      !_saving &&
+      (_status == _WorkoutEditorStatus.loaded ||
+          (!_editing && _status == _WorkoutEditorStatus.empty));
 
   @override
   void initState() {
     super.initState();
-    if (_editing) _load();
+    if (_editing) {
+      _status = _WorkoutEditorStatus.loading;
+      _load();
+    } else {
+      _draft = WorkoutEditorDraft.empty();
+    }
   }
 
   @override
@@ -469,12 +478,28 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final draft = _draft;
     return Scaffold(
       appBar: AppBar(
         title: Text(_editing ? 'Modifica scheda' : 'Nuova scheda'),
       ),
-      body: _loading
+      body: _status == _WorkoutEditorStatus.loading
           ? const LoadingView(label: 'Carico editor')
+          : _status == _WorkoutEditorStatus.error && _editing && draft == null
+          ? ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+              children: [
+                ErrorPanel(
+                  message: _error ?? 'Impossibile caricare la scheda.',
+                  onRetry: _load,
+                ),
+              ],
+            )
+          : draft == null
+          ? const EmptyState(
+              title: 'Editor non disponibile',
+              subtitle: 'Riapri la scheda e riprova.',
+            )
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
               children: [
@@ -518,12 +543,19 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
                     ),
                   ],
                 ),
-                ..._orderedEditorItems().asMap().entries.map(
+                if (draft.orderedItems().isEmpty) ...[
+                  const SizedBox(height: 8),
+                  const EmptyState(
+                    title: 'Struttura vuota',
+                    subtitle: 'Aggiungi esercizi, recuperi o un gruppo.',
+                  ),
+                ],
+                ...draft.orderedItems().asMap().entries.map(
                   (entry) => _editorItem(entry.value, entry.key),
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
-                  onPressed: _saving ? null : _save,
+                  onPressed: _canSave ? _save : null,
                   icon: _saving
                       ? const SizedBox.square(
                           dimension: 18,
@@ -537,7 +569,7 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
     );
   }
 
-  Widget _editorItem(_EditableWorkoutItem item, int position) {
+  Widget _editorItem(EditableWorkoutItem item, int position) {
     if (item.step != null) {
       final step = item.step!;
       return Padding(
@@ -581,6 +613,7 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
         ),
       );
     }
+
     final block = item.block!;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -628,6 +661,7 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
               (entry) => ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(child: Text('${entry.key + 1}')),
                 title: Text(entry.value.name),
                 subtitle: Text(_stepMeta(entry.value)),
                 trailing: Wrap(
@@ -656,94 +690,83 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _status = _WorkoutEditorStatus.loading;
+      _error = null;
+      _draft = null;
+    });
+    final workoutApi = AppScope.of(context).workoutApi;
     try {
-      final template = await AppScope.of(
-        context,
-      ).workoutApi.getWorkoutTemplate(widget.templateId!);
+      final template = await workoutApi.getWorkoutTemplate(widget.templateId!);
+      final draft = WorkoutEditorDraft.fromTemplate(template);
+      if (!mounted) return;
       setState(() {
-        _name.text = template.name;
-        _description.text = template.description ?? '';
-        _topSteps = [...template.steps];
-        _blocks = [...template.blocks];
-        _legacyExercises = [...template.exercises];
-        if (_topSteps.isEmpty &&
-            _blocks.isEmpty &&
-            _legacyExercises.isNotEmpty) {
-          _topSteps = _legacyExercises
-              .asMap()
-              .entries
-              .map(
-                (entry) => WorkoutStepDto(
-                  id: entry.value.id,
-                  name: entry.value.name,
-                  description: entry.value.notes,
-                  stepType: 'ACTIVE',
-                  measurementType: 'REPS',
-                  reps: parseLegacyReps(entry.value.reps),
-                  sortOrder: entry.key,
-                  intensity: entry.value.muscleGroup,
-                  active: true,
-                ),
-              )
-              .toList();
-        }
+        _draft = draft;
+        _status = _WorkoutEditorStatus.loaded;
+        _error = null;
       });
+      _hydrateControllers(draft);
     } on ApiException catch (error) {
-      setState(() => _error = error.message);
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() {
+        _status = _WorkoutEditorStatus.error;
+        _error = error.statusCode == 404
+            ? 'Scheda workout non trovata.'
+            : error.message;
+      });
+    } on WorkoutEditorException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _status = _WorkoutEditorStatus.error;
+        _error = error.message;
+      });
     }
   }
 
-  List<_EditableWorkoutItem> _orderedEditorItems() {
-    final items = [
-      ..._topSteps.map(_EditableWorkoutItem.step),
-      ..._blocks.map(_EditableWorkoutItem.block),
-    ]..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-    return items;
+  void _hydrateControllers(WorkoutEditorDraft draft) {
+    _name.text = draft.name;
+    _description.text = draft.description;
+  }
+
+  void _syncDraftFields() {
+    final draft = _draft;
+    if (draft == null) return;
+    draft.name = _name.text;
+    draft.description = _description.text;
   }
 
   Future<void> _addItem(String type) async {
+    final draft = _draft;
+    if (draft == null) return;
     if (type == 'block') {
-      final block = await _blockDialog();
-      if (block == null) return;
-      setState(
-        () => _blocks.add(
-          block.copyWith(sortOrder: _orderedEditorItems().length),
-        ),
+      final block = await _blockDialog(
+        initial: makeWorkoutEditorBlock(sortOrder: draft.orderedItems().length),
       );
-      _normalizeSortOrder();
+      if (!mounted || block == null) return;
+      setState(() => draft.addBlock(block));
       return;
     }
+
     final step = await _stepDialog(
-      initialType: type == 'recovery' ? 'BREAK' : 'ACTIVE',
+      initial: makeWorkoutEditorStep(
+        stepType: type == 'recovery' ? 'BREAK' : 'ACTIVE',
+        sortOrder: draft.orderedItems().length,
+      ),
     );
-    if (step == null) return;
-    setState(
-      () =>
-          _topSteps.add(step.copyWith(sortOrder: _orderedEditorItems().length)),
-    );
-    _normalizeSortOrder();
+    if (!mounted || step == null) return;
+    setState(() => draft.addTopStep(step));
   }
 
   Future<void> _editTopStep(WorkoutStepDto step) async {
     final updated = await _stepDialog(initial: step);
-    if (updated == null) return;
-    setState(() {
-      final index = _topSteps.indexOf(step);
-      _topSteps[index] = updated.copyWith(sortOrder: step.sortOrder);
-    });
+    if (!mounted || updated == null) return;
+    setState(() => _draft?.replaceTopStep(step, updated));
   }
 
   Future<void> _addBlockStep(WorkoutBlockDto block) async {
     final step = await _stepDialog();
-    if (step == null) return;
-    final steps = [
-      ...block.steps,
-      step.copyWith(sortOrder: block.steps.length),
-    ];
-    _replaceBlock(block, block.copyWith(steps: steps));
+    if (!mounted || step == null) return;
+    setState(() => _draft?.addBlockStep(block, step));
   }
 
   Future<void> _editBlockStep(
@@ -751,245 +774,53 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
     WorkoutStepDto step,
   ) async {
     final updated = await _stepDialog(initial: step);
-    if (updated == null) return;
-    final steps = [...block.steps];
-    final index = steps.indexOf(step);
-    steps[index] = updated.copyWith(sortOrder: step.sortOrder);
-    _replaceBlock(block, block.copyWith(steps: steps));
+    if (!mounted || updated == null) return;
+    setState(() => _draft?.replaceBlockStep(block, step, updated));
   }
 
   Future<void> _editBlock(WorkoutBlockDto block) async {
     final updated = await _blockDialog(initial: block);
-    if (updated == null) return;
-    _replaceBlock(
-      block,
-      updated.copyWith(sortOrder: block.sortOrder, steps: block.steps),
-    );
+    if (!mounted || updated == null) return;
+    setState(() => _draft?.replaceBlock(block, updated));
   }
 
   void _removeTopStep(WorkoutStepDto step) {
-    setState(() => _topSteps.remove(step));
-    _normalizeSortOrder();
+    setState(() => _draft?.removeTopStep(step));
   }
 
   void _removeBlock(WorkoutBlockDto block) {
-    setState(() => _blocks.remove(block));
-    _normalizeSortOrder();
+    setState(() => _draft?.removeBlock(block));
   }
 
   void _removeBlockStep(WorkoutBlockDto block, WorkoutStepDto step) {
-    final steps = [...block.steps]..remove(step);
-    _replaceBlock(block, block.copyWith(steps: _normalizeSteps(steps)));
-  }
-
-  void _replaceBlock(WorkoutBlockDto oldBlock, WorkoutBlockDto newBlock) {
-    setState(() {
-      final index = _blocks.indexOf(oldBlock);
-      _blocks[index] = newBlock;
-    });
+    setState(() => _draft?.removeBlockStep(block, step));
   }
 
   void _moveItem(int position, int delta) {
-    final items = _orderedEditorItems();
-    final newPosition = (position + delta).clamp(0, items.length - 1).toInt();
-    if (newPosition == position) return;
-    final moved = items.removeAt(position);
-    items.insert(newPosition, moved);
-    setState(() {
-      for (var index = 0; index < items.length; index += 1) {
-        final item = items[index];
-        if (item.step != null) {
-          final stepIndex = _topSteps.indexOf(item.step!);
-          _topSteps[stepIndex] = item.step!.copyWith(sortOrder: index);
-        } else {
-          final blockIndex = _blocks.indexOf(item.block!);
-          _blocks[blockIndex] = item.block!.copyWith(sortOrder: index);
-        }
-      }
-    });
-  }
-
-  void _normalizeSortOrder() {
-    final items = _orderedEditorItems();
-    setState(() {
-      for (var index = 0; index < items.length; index += 1) {
-        final item = items[index];
-        if (item.step != null) {
-          final stepIndex = _topSteps.indexOf(item.step!);
-          _topSteps[stepIndex] = item.step!.copyWith(sortOrder: index);
-        } else {
-          final blockIndex = _blocks.indexOf(item.block!);
-          _blocks[blockIndex] = item.block!.copyWith(sortOrder: index);
-        }
-      }
-    });
-  }
-
-  List<WorkoutStepDto> _normalizeSteps(List<WorkoutStepDto> steps) {
-    return steps
-        .asMap()
-        .entries
-        .map((entry) => entry.value.copyWith(sortOrder: entry.key))
-        .toList();
+    setState(() => _draft?.moveTopLevelItem(position, delta));
   }
 
   Future<WorkoutStepDto?> _stepDialog({
     WorkoutStepDto? initial,
     String initialType = 'ACTIVE',
-  }) async {
-    final name = TextEditingController(text: initial?.name ?? '');
-    final description = TextEditingController(text: initial?.description ?? '');
-    final amount = TextEditingController(
-      text: initial?.measurementType == 'TIME'
-          ? '${initial?.durationSeconds ?? ''}'
-          : '${initial?.reps ?? ''}',
-    );
-    var stepType = initial?.stepType ?? initialType;
-    var measurementType =
-        initial?.measurementType ?? (stepType == 'BREAK' ? 'TIME' : 'REPS');
-    final result = await showDialog<WorkoutStepDto>(
+  }) {
+    return showDialog<WorkoutStepDto>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Step'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: name,
-                  decoration: const InputDecoration(labelText: 'Nome'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: stepType,
-                  decoration: const InputDecoration(labelText: 'Tipo'),
-                  items: const [
-                    DropdownMenuItem(value: 'ACTIVE', child: Text('Esercizio')),
-                    DropdownMenuItem(value: 'BREAK', child: Text('Recupero')),
-                  ],
-                  onChanged: (value) => setDialogState(() {
-                    stepType = value ?? stepType;
-                    if (stepType == 'BREAK') measurementType = 'TIME';
-                  }),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: measurementType,
-                  decoration: const InputDecoration(labelText: 'Misura'),
-                  items: const [
-                    DropdownMenuItem(value: 'REPS', child: Text('Ripetizioni')),
-                    DropdownMenuItem(value: 'TIME', child: Text('Tempo')),
-                  ],
-                  onChanged: stepType == 'BREAK'
-                      ? null
-                      : (value) => setDialogState(
-                          () => measurementType = value ?? measurementType,
-                        ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: amount,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: measurementType == 'TIME'
-                        ? 'Secondi'
-                        : 'Ripetizioni',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: description,
-                  minLines: 2,
-                  maxLines: 3,
-                  decoration: const InputDecoration(labelText: 'Note'),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Annulla'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(
-                WorkoutStepDto(
-                  id: initial?.id,
-                  blockId: initial?.blockId,
-                  name: name.text.trim(),
-                  description: description.text.trim(),
-                  stepType: stepType,
-                  measurementType: measurementType,
-                  durationSeconds: measurementType == 'TIME'
-                      ? dates.parseOptionalInt(amount.text)
-                      : null,
-                  reps: measurementType == 'REPS'
-                      ? dates.parseOptionalInt(amount.text)
-                      : null,
-                  sortOrder: initial?.sortOrder ?? 0,
-                  active: true,
-                ),
-              ),
-              child: const Text('Ok'),
-            ),
-          ],
-        ),
+      builder: (context) => _WorkoutStepDialog(
+        initial:
+            initial ??
+            makeWorkoutEditorStep(stepType: initialType, sortOrder: 0),
       ),
     );
-    name.dispose();
-    description.dispose();
-    amount.dispose();
-    return result;
   }
 
-  Future<WorkoutBlockDto?> _blockDialog({WorkoutBlockDto? initial}) async {
-    final title = TextEditingController(text: initial?.title ?? '');
-    final repeat = TextEditingController(text: '${initial?.repeatCount ?? 1}');
-    final result = await showDialog<WorkoutBlockDto>(
+  Future<WorkoutBlockDto?> _blockDialog({WorkoutBlockDto? initial}) {
+    return showDialog<WorkoutBlockDto>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Gruppo'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: title,
-              decoration: const InputDecoration(labelText: 'Titolo'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: repeat,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Ripetizioni gruppo',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Annulla'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(
-              WorkoutBlockDto(
-                id: initial?.id,
-                title: title.text.trim(),
-                sortOrder: initial?.sortOrder ?? 0,
-                repeatCount: dates.parseOptionalInt(repeat.text) ?? 1,
-                steps: initial?.steps ?? const [],
-              ),
-            ),
-            child: const Text('Ok'),
-          ),
-        ],
+      builder: (context) => _WorkoutBlockDialog(
+        initial: initial ?? makeWorkoutEditorBlock(sortOrder: 0),
       ),
     );
-    title.dispose();
-    repeat.dispose();
-    return result;
   }
 
   String _stepMeta(WorkoutStepDto step) => [
@@ -997,58 +828,303 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
     step.measurementType == 'TIME'
         ? dates.compactDuration(step.durationSeconds)
         : '${step.reps ?? 1} reps',
-  ].join(' · ');
+    if (step.description?.trim().isNotEmpty == true) step.description!.trim(),
+  ].join(' - ');
 
   Future<void> _save() async {
+    final draft = _draft;
+    if (draft == null || (_editing && _status != _WorkoutEditorStatus.loaded)) {
+      setState(
+        () => _error = 'La scheda non e stata caricata: salvataggio bloccato.',
+      );
+      return;
+    }
+
+    _syncDraftFields();
+    Map<String, dynamic> payload;
+    try {
+      payload = draft.toRequestPayload();
+    } on WorkoutEditorValidationException catch (error) {
+      setState(() => _error = error.message);
+      return;
+    }
+
     setState(() {
       _saving = true;
       _error = null;
     });
+    final workoutApi = AppScope.of(context).workoutApi;
     try {
-      _normalizeSortOrder();
-      final payload = withoutNulls({
-        'name': _name.text.trim(),
-        'description': _description.text.trim(),
-        'estimatedDurationSeconds': _estimateDuration(),
-        'exercises': _legacyExercises.map((item) => item.toJson()).toList(),
-        'steps': _normalizeSteps(
-          _topSteps,
-        ).map((item) => item.toJson()).toList(),
-        'blocks': _blocks
-            .map(
-              (block) =>
-                  block.copyWith(steps: _normalizeSteps(block.steps)).toJson(),
-            )
-            .toList(),
-      });
       if (_editing) {
-        await AppScope.of(
-          context,
-        ).workoutApi.updateWorkoutTemplate(widget.templateId!, payload);
+        await workoutApi.updateWorkoutTemplate(widget.templateId!, payload);
       } else {
-        await AppScope.of(context).workoutApi.createWorkoutTemplate(payload);
+        await workoutApi.createWorkoutTemplate(payload);
       }
       if (mounted) Navigator.of(context).pop();
     } on ApiException catch (error) {
-      setState(() => _error = error.message);
+      if (mounted) setState(() => _error = error.message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
+}
 
-  int _estimateDuration() {
-    var total = 0;
-    for (final step in _topSteps) {
-      total += step.durationSeconds ?? 0;
+class _WorkoutStepDialog extends StatefulWidget {
+  const _WorkoutStepDialog({required this.initial});
+
+  final WorkoutStepDto initial;
+
+  @override
+  State<_WorkoutStepDialog> createState() => _WorkoutStepDialogState();
+}
+
+class _WorkoutStepDialogState extends State<_WorkoutStepDialog> {
+  late final TextEditingController _name;
+  late final TextEditingController _description;
+  late final TextEditingController _amount;
+  late final FocusNode _nameFocus;
+  late String _stepType;
+  late String _measurementType;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initial;
+    _stepType = initial.stepType == 'BREAK' ? 'BREAK' : 'ACTIVE';
+    _measurementType = _stepType == 'BREAK'
+        ? 'TIME'
+        : initial.measurementType == 'TIME'
+        ? 'TIME'
+        : 'REPS';
+    _name = TextEditingController(text: initial.name);
+    _description = TextEditingController(text: initial.description ?? '');
+    _amount = TextEditingController(
+      text: _measurementType == 'TIME'
+          ? '${initial.durationSeconds ?? ''}'
+          : '${initial.reps ?? ''}',
+    );
+    _nameFocus = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _description.dispose();
+    _amount.dispose();
+    _nameFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(_stepType == 'BREAK' ? 'Recupero' : 'Esercizio'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _name,
+              focusNode: _nameFocus,
+              decoration: const InputDecoration(labelText: 'Nome'),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _stepType,
+              decoration: const InputDecoration(labelText: 'Tipo'),
+              items: const [
+                DropdownMenuItem(value: 'ACTIVE', child: Text('Esercizio')),
+                DropdownMenuItem(value: 'BREAK', child: Text('Recupero')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _stepType = value ?? _stepType;
+                  if (_stepType == 'BREAK') {
+                    _measurementType = 'TIME';
+                    if (_name.text.trim().isEmpty) _name.text = 'Recupero';
+                  }
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _measurementType,
+              decoration: const InputDecoration(labelText: 'Misura'),
+              items: const [
+                DropdownMenuItem(value: 'REPS', child: Text('Ripetizioni')),
+                DropdownMenuItem(value: 'TIME', child: Text('Tempo')),
+              ],
+              onChanged: _stepType == 'BREAK'
+                  ? null
+                  : (value) =>
+                        setState(() => _measurementType = value ?? 'REPS'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _amount,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: _measurementType == 'TIME'
+                    ? 'Secondi'
+                    : 'Ripetizioni',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _description,
+              minLines: 2,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Note'),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _cancel, child: const Text('Annulla')),
+        FilledButton(onPressed: _submit, child: const Text('Ok')),
+      ],
+    );
+  }
+
+  void _cancel() {
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop();
+  }
+
+  void _submit() {
+    final name = _name.text.trim();
+    final amount = dates.parseOptionalInt(_amount.text);
+    if (name.isEmpty) {
+      setState(() => _error = 'Il nome step e obbligatorio.');
+      _nameFocus.requestFocus();
+      return;
     }
-    for (final block in _blocks) {
-      final blockDuration = block.steps.fold<int>(
-        0,
-        (sum, step) => sum + (step.durationSeconds ?? 0),
+    if (amount == null || amount <= 0) {
+      setState(
+        () => _error = _measurementType == 'TIME'
+            ? 'La durata deve essere maggiore di zero.'
+            : 'Le ripetizioni devono essere maggiori di zero.',
       );
-      total += blockDuration * block.repeatCount;
+      return;
     }
-    return total;
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop(
+      WorkoutStepDto(
+        id: widget.initial.id,
+        blockId: widget.initial.blockId,
+        name: name,
+        description: _description.text.trim(),
+        stepType: _stepType,
+        measurementType: _measurementType,
+        durationSeconds: _measurementType == 'TIME' ? amount : null,
+        reps: _measurementType == 'REPS' ? amount : null,
+        sortOrder: widget.initial.sortOrder,
+        color: widget.initial.color,
+        intensity: widget.initial.intensity,
+        active: true,
+      ),
+    );
+  }
+}
+
+class _WorkoutBlockDialog extends StatefulWidget {
+  const _WorkoutBlockDialog({required this.initial});
+
+  final WorkoutBlockDto initial;
+
+  @override
+  State<_WorkoutBlockDialog> createState() => _WorkoutBlockDialogState();
+}
+
+class _WorkoutBlockDialogState extends State<_WorkoutBlockDialog> {
+  late final TextEditingController _title;
+  late final TextEditingController _repeat;
+  late final FocusNode _titleFocus;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = TextEditingController(text: widget.initial.title);
+    _repeat = TextEditingController(text: '${widget.initial.repeatCount}');
+    _titleFocus = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _repeat.dispose();
+    _titleFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Gruppo'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _title,
+            focusNode: _titleFocus,
+            decoration: const InputDecoration(labelText: 'Titolo'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _repeat,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Ripetizioni gruppo'),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: _cancel, child: const Text('Annulla')),
+        FilledButton(onPressed: _submit, child: const Text('Ok')),
+      ],
+    );
+  }
+
+  void _cancel() {
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop();
+  }
+
+  void _submit() {
+    final title = _title.text.trim();
+    final repeat = dates.parseOptionalInt(_repeat.text) ?? 1;
+    if (title.isEmpty) {
+      setState(() => _error = 'Il titolo gruppo e obbligatorio.');
+      _titleFocus.requestFocus();
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop(
+      WorkoutBlockDto(
+        id: widget.initial.id,
+        title: title,
+        sortOrder: widget.initial.sortOrder,
+        repeatCount: normalizeRepeatCount(repeat),
+        color: widget.initial.color,
+        collapsed: widget.initial.collapsed,
+        steps: widget.initial.steps,
+      ),
+    );
   }
 }
 
@@ -1422,24 +1498,6 @@ class _ShareCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _EditableWorkoutItem {
-  _EditableWorkoutItem.step(WorkoutStepDto step)
-    : this._(step: step, block: null, sortOrder: step.sortOrder);
-
-  _EditableWorkoutItem.block(WorkoutBlockDto block)
-    : this._(step: null, block: block, sortOrder: block.sortOrder);
-
-  const _EditableWorkoutItem._({
-    required this.step,
-    required this.block,
-    required this.sortOrder,
-  });
-
-  final WorkoutStepDto? step;
-  final WorkoutBlockDto? block;
-  final int sortOrder;
 }
 
 extension on String {
