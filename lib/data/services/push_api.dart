@@ -16,4 +16,26 @@ class PushApi {
       body: title == null || title.isEmpty ? null : {'title': title},
     );
   }
+
+  Future<Map<String, dynamic>> registerMobileDeviceToken({
+    required String token,
+    required String platform,
+    String? deviceName,
+  }) {
+    return _client.postMap(
+      '/mobile/device-tokens',
+      body: {
+        'token': token,
+        'platform': platform,
+        if (deviceName != null && deviceName.isNotEmpty)
+          'deviceName': deviceName,
+      },
+    );
+  }
+
+  Future<void> deleteMobileDeviceToken(String token) {
+    return _client.delete(
+      '/mobile/device-tokens/${Uri.encodeComponent(token)}',
+    );
+  }
 }

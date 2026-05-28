@@ -9,6 +9,7 @@ import '../features/auth/auth_controller.dart';
 import 'app_config.dart';
 import 'network/api_client.dart';
 import 'notifications/local_notification_service.dart';
+import 'notifications/mobile_push_service.dart';
 import 'storage/session_storage.dart';
 
 class AppDependencies {
@@ -17,6 +18,7 @@ class AppDependencies {
     required this.apiClient,
     required this.sessionStorage,
     required this.notifications,
+    required this.mobilePush,
     required this.authApi,
     required this.planningApi,
     required this.workoutApi,
@@ -29,6 +31,7 @@ class AppDependencies {
   final ApiClient apiClient;
   final SessionStorage sessionStorage;
   final LocalNotificationService notifications;
+  final MobilePushService mobilePush;
   final AuthApi authApi;
   final PlanningApi planningApi;
   final WorkoutApi workoutApi;

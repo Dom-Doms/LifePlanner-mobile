@@ -4,6 +4,7 @@ import 'core/app_config.dart';
 import 'core/app_scope.dart';
 import 'core/network/api_client.dart';
 import 'core/notifications/local_notification_service.dart';
+import 'core/notifications/mobile_push_service.dart';
 import 'core/storage/session_storage.dart';
 import 'core/theme/app_theme.dart';
 import 'data/services/auth_api.dart';
@@ -15,28 +16,40 @@ import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_screens.dart';
 import 'features/main_shell.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final config = AppConfig.fromEnvironment();
   final apiClient = ApiClient(baseUrl: config.apiBaseUrl);
   final sessionStorage = SessionStorage();
   final notifications = LocalNotificationService();
   final authApi = AuthApi(apiClient);
+  final pushApi = PushApi(apiClient);
+  late final AuthController authController;
+  final mobilePush = MobilePushService(
+    backend: PushApiMobilePushBackend(pushApi),
+    firebase: FirebaseMessagingGateway(),
+    notifier: LocalEventReminderNotifier(notifications),
+    isAuthenticated: () => authController.isAuthenticated,
+  );
+  authController = AuthController(
+    authApi: authApi,
+    apiClient: apiClient,
+    storage: sessionStorage,
+    mobilePush: mobilePush,
+  );
+  await mobilePush.initialize();
   final dependencies = AppDependencies(
     config: config,
     apiClient: apiClient,
     sessionStorage: sessionStorage,
     notifications: notifications,
+    mobilePush: mobilePush,
     authApi: authApi,
     planningApi: PlanningApi(apiClient),
     workoutApi: WorkoutApi(apiClient),
     usersApi: UsersApi(apiClient),
-    pushApi: PushApi(apiClient),
-    auth: AuthController(
-      authApi: authApi,
-      apiClient: apiClient,
-      storage: sessionStorage,
-    ),
+    pushApi: pushApi,
+    auth: authController,
   );
 
   runApp(AppScope(dependencies: dependencies, child: const LifePlannerApp()));

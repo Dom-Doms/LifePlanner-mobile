@@ -22,11 +22,13 @@ class MainActivity : FlutterActivity() {
     private val storageChannelName = "lifeplanner_mobile/session_storage"
     private val workoutServiceChannelName = "lifeplanner_mobile/workout_foreground_service"
     private val notificationChannelId = "lifeplanner_workout_v2"
+    private val fcmReminderChannelId = "lifeplanner_event_reminders"
     private val permissionRequestCode = 4907
     private var pendingPermissionResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        createFcmReminderChannel()
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, notificationChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -193,6 +195,20 @@ class MainActivity : FlutterActivity() {
             .build()
         manager.notify(id, notification)
         if (vibrate) vibrate()
+    }
+
+    private fun createFcmReminderChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = NotificationChannel(
+            fcmReminderChannelId,
+            "LifePlanner reminders",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 180, 90, 180)
+        }
+        manager.createNotificationChannel(channel)
     }
 
     private fun vibrate() {

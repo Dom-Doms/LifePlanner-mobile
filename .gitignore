@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase project config is environment-specific for the native Android app.
+/android/app/google-services.json

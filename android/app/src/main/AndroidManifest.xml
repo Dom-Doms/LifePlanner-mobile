@@ -35,6 +35,9 @@
             android:name=".WorkoutForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="lifeplanner_event_reminders" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

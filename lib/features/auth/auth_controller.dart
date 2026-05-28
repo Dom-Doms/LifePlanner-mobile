@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/network/api_client.dart';
+import '../../core/notifications/mobile_push_service.dart';
 import '../../core/storage/session_storage.dart';
 import '../../data/models/auth_models.dart';
 import '../../data/services/auth_api.dart';
@@ -12,9 +13,11 @@ class AuthController extends ChangeNotifier {
     required AuthApi authApi,
     required ApiClient apiClient,
     required SessionStorage storage,
+    MobilePushRegistration? mobilePush,
   }) : _authApi = authApi,
        _apiClient = apiClient,
-       _storage = storage {
+       _storage = storage,
+       _mobilePush = mobilePush {
     _apiClient.onRefreshToken = _refreshAccessToken;
     _apiClient.onUnauthorized = logout;
   }
@@ -22,6 +25,7 @@ class AuthController extends ChangeNotifier {
   final AuthApi _authApi;
   final ApiClient _apiClient;
   final SessionStorage _storage;
+  final MobilePushRegistration? _mobilePush;
 
   bool _restoring = true;
   bool _busy = false;
@@ -81,6 +85,9 @@ class AuthController extends ChangeNotifier {
             );
           }
         }
+        if (isAuthenticated) {
+          await _mobilePush?.registerCurrentDevice();
+        }
       }
     } catch (error) {
       debugPrint('[auth] session restore failed: $error');
@@ -99,6 +106,7 @@ class AuthController extends ChangeNotifier {
         refreshToken: auth.refreshToken,
         user: auth.user,
       );
+      await _mobilePush?.registerCurrentDevice();
     });
   }
 
@@ -119,6 +127,7 @@ class AuthController extends ChangeNotifier {
         refreshToken: auth.refreshToken,
         user: auth.user,
       );
+      await _mobilePush?.registerCurrentDevice();
     });
   }
 
@@ -138,6 +147,7 @@ class AuthController extends ChangeNotifier {
 
   Future<void> logout() async {
     final refreshToken = _refreshToken;
+    await _mobilePush?.deleteCurrentTokenOnLogout();
     if (refreshToken != null && refreshToken.isNotEmpty) {
       try {
         await _authApi.logout(refreshToken: refreshToken);
