@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:vibration/vibration.dart';
 
 class LocalNotificationService {
   LocalNotificationService({MethodChannel? channel})
@@ -44,10 +46,46 @@ class LocalNotificationService {
   }
 
   Future<void> vibrate() async {
+    await _vibrateForeground(pattern: const [0, 180, 80, 180], durationMs: 240);
+  }
+
+  Future<void> vibrateForStepCompletion({
+    required int currentStepIndex,
+    required String type,
+  }) async {
+    debugPrint(
+      'Runner vibration: step completed index=$currentStepIndex type=$type',
+    );
+    await _vibrateForeground(pattern: const [0, 180, 80, 180], durationMs: 240);
+  }
+
+  Future<void> _vibrateForeground({
+    required List<int> pattern,
+    required int durationMs,
+  }) async {
+    var packageVibrationStarted = false;
+    try {
+      final hasVibrator = await Vibration.hasVibrator();
+      if (hasVibrator != false) {
+        final supportsPattern = await Vibration.hasCustomVibrationsSupport();
+        if (supportsPattern == true) {
+          await Vibration.vibrate(pattern: pattern);
+        } else {
+          await Vibration.vibrate(duration: durationMs);
+        }
+        packageVibrationStarted = true;
+      }
+    } catch (error) {
+      debugPrint('Runner vibration: package vibration failed $error');
+    }
+
+    if (packageVibrationStarted) return;
     try {
       await _channel.invokeMethod<void>('vibrate');
     } on MissingPluginException {
       return;
+    } catch (error) {
+      debugPrint('Runner vibration: platform fallback failed $error');
     }
   }
 }
