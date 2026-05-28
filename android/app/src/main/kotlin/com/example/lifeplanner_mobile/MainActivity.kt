@@ -15,10 +15,12 @@ import android.os.VibratorManager
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 
 class MainActivity : FlutterActivity() {
     private val notificationChannelName = "lifeplanner_mobile/local_notifications"
     private val storageChannelName = "lifeplanner_mobile/session_storage"
+    private val workoutServiceChannelName = "lifeplanner_mobile/workout_foreground_service"
     private val notificationChannelId = "lifeplanner_workout_v2"
     private val permissionRequestCode = 4907
     private var pendingPermissionResult: MethodChannel.Result? = null
@@ -45,6 +47,62 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        val workoutServiceChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            workoutServiceChannelName
+        )
+        EventBridge.sink = { event ->
+            workoutServiceChannel.invokeMethod("onWorkoutServiceEvent", event)
+        }
+        workoutServiceChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startWorkoutService" -> {
+                    WorkoutForegroundService.command(
+                        this,
+                        WorkoutForegroundService.ACTION_START,
+                        JSONObject(call.arguments as Map<*, *>).toString()
+                    )
+                    result.success(true)
+                }
+                "updateWorkoutService" -> {
+                    WorkoutForegroundService.command(
+                        this,
+                        WorkoutForegroundService.ACTION_UPDATE,
+                        JSONObject(call.arguments as Map<*, *>).toString()
+                    )
+                    result.success(true)
+                }
+                "pauseWorkoutService" -> {
+                    WorkoutForegroundService.command(this, WorkoutForegroundService.ACTION_PAUSE)
+                    result.success(true)
+                }
+                "resumeWorkoutService" -> {
+                    WorkoutForegroundService.command(this, WorkoutForegroundService.ACTION_RESUME)
+                    result.success(true)
+                }
+                "completeCurrentStepWorkoutService" -> {
+                    WorkoutForegroundService.command(this, WorkoutForegroundService.ACTION_NEXT)
+                    result.success(true)
+                }
+                "skipWorkoutServiceStep" -> {
+                    WorkoutForegroundService.command(this, WorkoutForegroundService.ACTION_SKIP)
+                    result.success(true)
+                }
+                "previousWorkoutServiceStep" -> {
+                    WorkoutForegroundService.command(this, WorkoutForegroundService.ACTION_PREVIOUS)
+                    result.success(true)
+                }
+                "stopWorkoutService" -> {
+                    WorkoutForegroundService.command(this, WorkoutForegroundService.ACTION_STOP)
+                    result.success(true)
+                }
+                "getWorkoutServiceState" -> {
+                    result.success(WorkoutForegroundService.readFlutterState(this))
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, storageChannelName)
             .setMethodCallHandler { call, result ->

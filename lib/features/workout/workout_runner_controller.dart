@@ -140,12 +140,13 @@ List<ExecutableWorkoutStep> flattenWorkoutTemplate(
 class WorkoutRunnerController extends ChangeNotifier {
   WorkoutRunnerController({
     required WorkoutRunResponse run,
+    this.useInternalTimer = true,
     this.onTimedStepComplete,
     this.onWorkoutComplete,
   }) {
     _sequence = flattenWorkoutTemplate(run.template);
     _hydrate(run);
-    if (!isFinished) _startTimer();
+    if (useInternalTimer && !isFinished) _startTimer();
   }
 
   List<ExecutableWorkoutStep> _sequence = [];
@@ -155,6 +156,7 @@ class WorkoutRunnerController extends ChangeNotifier {
   int remainingTime = 0;
   bool isPaused = false;
   bool isFinished = false;
+  final bool useInternalTimer;
   final void Function(ExecutableWorkoutStep step)? onTimedStepComplete;
   final VoidCallback? onWorkoutComplete;
 
@@ -207,7 +209,7 @@ class WorkoutRunnerController extends ChangeNotifier {
   void resume() {
     if (isFinished) return;
     isPaused = false;
-    _startTimer();
+    if (useInternalTimer) _startTimer();
     notifyListeners();
   }
 
@@ -274,6 +276,26 @@ class WorkoutRunnerController extends ChangeNotifier {
   @visibleForTesting
   void tickOneSecond() => _handleTick();
 
+  void applyServiceState({
+    required int currentStepIndex,
+    required int elapsedSeconds,
+    required int remainingTime,
+    required String status,
+    required bool finished,
+  }) {
+    currentIndex = currentStepIndex
+        .clamp(0, _sequence.isEmpty ? 0 : _sequence.length - 1)
+        .toInt();
+    this.elapsedSeconds = elapsedSeconds;
+    this.remainingTime = remainingTime;
+    isPaused = status == 'PAUSED';
+    isFinished = finished || status == 'COMPLETED' || status == 'CANCELLED';
+    if (isFinished) {
+      _timer?.cancel();
+    }
+    notifyListeners();
+  }
+
   void completeLocal() {
     if (isFinished) return;
     isFinished = true;
@@ -297,6 +319,7 @@ class WorkoutRunnerController extends ChangeNotifier {
   }
 
   void _startTimer() {
+    if (!useInternalTimer) return;
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _handleTick());
   }

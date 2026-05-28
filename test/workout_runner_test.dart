@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lifeplanner_mobile/data/models/workout_models.dart';
+import 'package:lifeplanner_mobile/features/workout/workout_foreground_service.dart';
 import 'package:lifeplanner_mobile/features/workout/workout_runner_controller.dart';
 
 void main() {
@@ -575,6 +576,132 @@ void main() {
     expect(runner.currentStep?.name, 'Finisher');
     expect(runner.nextStep?.name, 'Curl');
   });
+
+  test('foreground service payload preserves custom sequence order', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Squat',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 10,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Bench',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 8,
+            sortOrder: 1,
+          ),
+          const WorkoutStepDto(
+            name: 'Row',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 12,
+            sortOrder: 2,
+          ),
+        ]),
+      ),
+      useInternalTimer: false,
+    );
+    addTearDown(runner.dispose);
+
+    runner.reorderFutureStep(2, 1);
+    final payload = WorkoutServicePayload.fromRunner(runId: 99, runner: runner);
+
+    expect(payload.runId, 99);
+    expect(payload.sequence.map((step) => step.name), [
+      'Squat',
+      'Row',
+      'Bench',
+    ]);
+    expect(payload.sequence.map((step) => step.sequenceKey), [
+      ...runner.sequence.map((step) => step.sequenceKey),
+    ]);
+  });
+
+  test('service state updates controller without internal timer drift', () {
+    final runner = WorkoutRunnerController(
+      run: _runFor(
+        _template([
+          const WorkoutStepDto(
+            name: 'Rest',
+            stepType: 'BREAK',
+            measurementType: 'TIME',
+            durationSeconds: 10,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Pushup',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 12,
+            sortOrder: 1,
+          ),
+        ]),
+      ),
+      useInternalTimer: false,
+    );
+    addTearDown(runner.dispose);
+
+    runner.applyServiceState(
+      currentStepIndex: 0,
+      elapsedSeconds: 4,
+      remainingTime: 6,
+      status: 'IN_PROGRESS',
+      finished: false,
+    );
+
+    expect(runner.currentStep?.name, 'Rest');
+    expect(runner.elapsedSeconds, 4);
+    expect(runner.remainingTime, 6);
+
+    runner.applyServiceState(
+      currentStepIndex: 1,
+      elapsedSeconds: 10,
+      remainingTime: 0,
+      status: 'IN_PROGRESS',
+      finished: false,
+    );
+
+    expect(runner.currentStep?.name, 'Pushup');
+    expect(runner.currentStep?.isTimed, isFalse);
+  });
+
+  test(
+    'service payload marks reps steps as manual and timed rests as timed',
+    () {
+      final sequence = flattenWorkoutTemplate(
+        _template([
+          const WorkoutStepDto(
+            name: 'Manual reps',
+            stepType: 'ACTIVE',
+            measurementType: 'REPS',
+            reps: 8,
+            sortOrder: 0,
+          ),
+          const WorkoutStepDto(
+            name: 'Recovery',
+            stepType: 'BREAK',
+            measurementType: 'TIME',
+            durationSeconds: 30,
+            sortOrder: 1,
+          ),
+        ]),
+      );
+
+      final serviceSteps = sequence
+          .map(WorkoutServiceStep.fromRunnerStep)
+          .toList();
+
+      expect(serviceSteps.first.isTimed, isFalse);
+      expect(serviceSteps.first.reps, 8);
+      expect(serviceSteps.last.isTimed, isTrue);
+      expect(serviceSteps.last.durationSeconds, 30);
+    },
+  );
 }
 
 WorkoutTemplateResponse _template(List<WorkoutStepDto> steps) {

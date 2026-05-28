@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
@@ -10,6 +11,7 @@ import '../../data/models/auth_models.dart';
 import '../../data/models/workout_models.dart';
 import '../../shared/widgets/app_cards.dart';
 import 'workout_editor_draft.dart';
+import 'workout_foreground_service.dart';
 import 'workout_runner_controller.dart';
 
 class WorkoutsListScreen extends StatefulWidget {
@@ -1468,25 +1470,52 @@ class WorkoutRunScreen extends StatefulWidget {
   State<WorkoutRunScreen> createState() => _WorkoutRunScreenState();
 }
 
-class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
+class _WorkoutRunScreenState extends State<WorkoutRunScreen>
+    with WidgetsBindingObserver {
   WorkoutRunnerController? _runner;
   Timer? _autosave;
+  final WorkoutForegroundService _foregroundService =
+      WorkoutForegroundService();
+  StreamSubscription<WorkoutServiceEvent>? _serviceSubscription;
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  bool get _usesForegroundService =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _serviceSubscription = _foregroundService.events.listen(
+      _handleServiceEvent,
+    );
     _load();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _serviceSubscription?.cancel();
     _autosave?.cancel();
     _persistState();
     _runner?.dispose();
+    _foregroundService.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _syncForegroundServiceState(persist: true);
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _persistState();
+    }
   }
 
   @override
@@ -1842,9 +1871,13 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
       _runner?.dispose();
       _runner = WorkoutRunnerController(
         run: run,
+        useInternalTimer: !_usesForegroundService,
         onTimedStepComplete: _notifyTimedStepComplete,
         onWorkoutComplete: _notifyWorkoutComplete,
       );
+      if (_usesForegroundService) {
+        await _startOrSyncForegroundService();
+      }
       _autosave?.cancel();
       _autosave = Timer.periodic(
         const Duration(seconds: 15),
@@ -1871,24 +1904,37 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
       final run = runner.isPaused
           ? await workoutApi.resumeWorkoutRun(widget.runId)
           : await workoutApi.pauseWorkoutRun(widget.runId);
-      if (runner.isPaused) {
-        runner.resume();
-      } else {
-        runner.pause();
-      }
       runner.hydrateFromServer(run);
+      if (_usesForegroundService) {
+        if (runner.isPaused) {
+          await _foregroundService.pause();
+        } else {
+          await _foregroundService.resume();
+        }
+        await _syncForegroundServiceState();
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _previous() async {
-    _runner?.previous();
+    if (_usesForegroundService) {
+      await _foregroundService.previousStep();
+      await _syncForegroundServiceState();
+    } else {
+      _runner?.previous();
+    }
     await _persistState();
   }
 
   Future<void> _completeStep() async {
-    _runner?.completeStep();
+    if (_usesForegroundService) {
+      await _foregroundService.completeCurrentStep();
+      await _syncForegroundServiceState();
+    } else {
+      _runner?.completeStep();
+    }
     await _persistState();
   }
 
@@ -1897,10 +1943,18 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
     if (runner == null || _busy) return;
     final changed = runner.reorderFutureItem(oldIndex, newIndex);
     if (!changed) return;
+    if (_usesForegroundService) {
+      await _foregroundService.update(
+        WorkoutServicePayload.fromRunner(runId: widget.runId, runner: runner),
+      );
+      await _syncForegroundServiceState();
+    }
     await _persistState();
   }
 
-  Future<void> _finish() async {
+  Future<void> _finish() => _completeWorkout(stopService: true);
+
+  Future<void> _completeWorkout({required bool stopService}) async {
     final runner = _runner;
     if (runner == null) return;
     final workoutApi = AppScope.of(context).workoutApi;
@@ -1917,6 +1971,9 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
         title: 'Workout completato',
         body: 'Hai completato ${runner.sequence.length} step.',
       );
+      if (stopService && _usesForegroundService) {
+        await _foregroundService.stop();
+      }
       if (mounted) Navigator.of(context).pop();
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -1925,6 +1982,9 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
 
   Future<void> _cancel() async {
     final workoutApi = AppScope.of(context).workoutApi;
+    if (_usesForegroundService) {
+      await _foregroundService.stop();
+    }
     await workoutApi.cancelWorkoutRun(widget.runId);
     if (mounted) Navigator.of(context).pop();
   }
@@ -1943,6 +2003,64 @@ class _WorkoutRunScreenState extends State<WorkoutRunScreen> {
     } catch (_) {
       debugPrint('[workout-runner] state persist failed runId=${widget.runId}');
       return false;
+    }
+  }
+
+  Future<void> _startOrSyncForegroundService() async {
+    final runner = _runner;
+    if (runner == null) return;
+    await AppScope.of(context).notifications.requestPermission();
+    final currentState = await _foregroundService.getState();
+    if (currentState?.runId == widget.runId) {
+      _applyServiceState(currentState!);
+      if (currentState.finished) {
+        await _completeWorkout(stopService: false);
+      }
+      if (currentState.active || currentState.finished) {
+        return;
+      }
+    }
+    if (runner.isFinished) {
+      return;
+    }
+    await _foregroundService.start(
+      WorkoutServicePayload.fromRunner(runId: widget.runId, runner: runner),
+    );
+    await _syncForegroundServiceState();
+  }
+
+  Future<void> _syncForegroundServiceState({bool persist = false}) async {
+    if (!_usesForegroundService) return;
+    final state = await _foregroundService.getState();
+    if (state == null || state.runId != widget.runId) return;
+    _applyServiceState(state);
+    if (persist) {
+      await _persistState();
+    }
+  }
+
+  void _applyServiceState(WorkoutServiceState state) {
+    final runner = _runner;
+    if (runner == null || state.runId != widget.runId) return;
+    runner.applyServiceState(
+      currentStepIndex: state.currentStepIndex,
+      elapsedSeconds: state.elapsedSeconds,
+      remainingTime: state.remainingTime,
+      status: state.status,
+      finished: state.finished,
+    );
+  }
+
+  Future<void> _handleServiceEvent(WorkoutServiceEvent event) async {
+    if (!mounted || event.state.runId != widget.runId) return;
+    _applyServiceState(event.state);
+    if (event.type == 'stepCompleted' || event.type == 'serviceStopped') {
+      await _persistState();
+      return;
+    }
+    if (event.type == 'workoutCompleted') {
+      await _persistState();
+      await _completeWorkout(stopService: false);
     }
   }
 
