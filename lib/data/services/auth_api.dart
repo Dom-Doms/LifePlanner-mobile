@@ -56,4 +56,23 @@ class AuthApi {
     final data = await _client.getMap('/auth/me');
     return UserResponse.fromJson(data);
   }
+
+  Future<AuthResponse> refresh(String refreshToken) async {
+    final data = await _client.postMap(
+      '/auth/refresh',
+      auth: false,
+      body: {'refreshToken': refreshToken},
+    );
+    return AuthResponse.fromJson(data);
+  }
+
+  Future<void> logout({String? refreshToken}) async {
+    await _client.postMap(
+      '/auth/logout',
+      auth: false,
+      body: refreshToken == null || refreshToken.isEmpty
+          ? null
+          : {'refreshToken': refreshToken},
+    );
+  }
 }

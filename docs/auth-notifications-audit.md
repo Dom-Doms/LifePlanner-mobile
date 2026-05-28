@@ -1,6 +1,7 @@
 # Audit auth e notifiche mobile
 
 Data audit: 2026-05-21
+Aggiornamento: la persistenza login descritta in questa sezione era lo stato precedente. La versione corrente usa refresh token backend e `flutter_secure_storage`; vedere `docs/flutter-todo.md` per il comportamento mobile aggiornato.
 
 Scope: app Flutter in `lifeplanner_mobile`. I progetti Vue e Spring sono stati consultati solo come riferimento funzionale; non sono stati modificati.
 

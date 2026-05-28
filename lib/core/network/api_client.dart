@@ -26,7 +26,9 @@ class ApiClient {
   final Uri _baseUri;
   final HttpClient _httpClient = HttpClient();
   String? _token;
+  Future<bool> Function()? onRefreshToken;
   Future<void> Function()? onUnauthorized;
+  Future<bool>? _refreshInFlight;
 
   void setToken(String? token) {
     _token = token;
@@ -106,8 +108,14 @@ class ApiClient {
     final uri = _buildUri(path, query);
     debugPrint('[api] $method ${uri.path} start');
     try {
-      final decoded = await _sendRequest(method, uri, body: body, auth: auth)
-          .timeout(
+      final decoded =
+          await _sendRequest(
+            method,
+            uri,
+            body: body,
+            auth: auth,
+            allowRefresh: true,
+          ).timeout(
             const Duration(seconds: 20),
             onTimeout: () {
               throw ApiException(
@@ -139,6 +147,7 @@ class ApiClient {
     Uri uri, {
     Object? body,
     bool auth = true,
+    required bool allowRefresh,
   }) async {
     final request = await _httpClient.openUrl(method, uri);
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
@@ -157,11 +166,41 @@ class ApiClient {
       return decoded;
     }
 
-    if (response.statusCode == 401 && auth) {
+    if (response.statusCode == 401 && auth && allowRefresh) {
+      final refreshed = await _refreshAccessToken();
+      if (refreshed) {
+        return _sendRequest(
+          method,
+          uri,
+          body: body,
+          auth: auth,
+          allowRefresh: false,
+        );
+      }
       await onUnauthorized?.call();
     }
 
     throw _exceptionFromResponse(response.statusCode, decoded);
+  }
+
+  Future<bool> _refreshAccessToken() async {
+    final handler = onRefreshToken;
+    if (handler == null) {
+      return false;
+    }
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+    final refresh = handler();
+    _refreshInFlight = refresh;
+    try {
+      return await refresh;
+    } finally {
+      if (identical(_refreshInFlight, refresh)) {
+        _refreshInFlight = null;
+      }
+    }
   }
 
   Uri _buildUri(String path, Map<String, String?> query) {

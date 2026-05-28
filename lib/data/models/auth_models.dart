@@ -45,14 +45,20 @@ class UserResponse {
 }
 
 class AuthResponse {
-  const AuthResponse({required this.token, required this.user});
+  const AuthResponse({
+    required this.token,
+    required this.user,
+    this.refreshToken,
+  });
 
   factory AuthResponse.fromJson(Map<String, dynamic> json) => AuthResponse(
     token: readString(json, 'token'),
+    refreshToken: readNullableString(json, 'refreshToken'),
     user: UserResponse.fromJson(asMap(json['user'])),
   );
 
   final String token;
+  final String? refreshToken;
   final UserResponse user;
 }
 

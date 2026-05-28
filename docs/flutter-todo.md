@@ -2,6 +2,12 @@
 
 Questa app usa solo endpoint gia presenti nel backend LifePlanner e platform channel nativi locali.
 
+## Auth mobile
+
+- La sessione mobile usa `flutter_secure_storage` tramite `SessionStorage`: access token, refresh token e user JSON non vengono piu salvati nel vecchio MethodChannel SharedPreferences/UserDefaults.
+- Al primo avvio dopo update, se secure storage e vuoto ma esiste una sessione legacy, l'app migra `token` e `user` in secure storage e cancella la sessione legacy. Le sessioni legacy non contengono `refreshToken`: restano valide solo finche il vecchio access token non scade; dopo un nuovo login viene salvato anche il refresh token.
+- `ApiClient` ritenta una sola volta le richieste autenticate dopo un 401 se il refresh token e valido. Se il refresh fallisce, `AuthController.logout` pulisce la sessione locale.
+
 ## Da completare quando ci sono decisioni o endpoint dedicati
 
 - Push remoto nativo: il backend espone Web Push VAPID per PWA, non token FCM/APNs. L'app Flutter implementa notifiche native locali per il workout, ma non puo ricevere reminder server-side a app chiusa senza estensione backend.

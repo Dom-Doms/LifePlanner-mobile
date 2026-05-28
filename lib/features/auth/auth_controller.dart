@@ -1,12 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/storage/session_storage.dart';
 import '../../data/models/auth_models.dart';
-import '../../data/models/json_helpers.dart';
 import '../../data/services/auth_api.dart';
 
 class AuthController extends ChangeNotifier {
@@ -17,6 +15,7 @@ class AuthController extends ChangeNotifier {
   }) : _authApi = authApi,
        _apiClient = apiClient,
        _storage = storage {
+    _apiClient.onRefreshToken = _refreshAccessToken;
     _apiClient.onUnauthorized = logout;
   }
 
@@ -26,13 +25,15 @@ class AuthController extends ChangeNotifier {
 
   bool _restoring = true;
   bool _busy = false;
-  String? _token;
+  String? _accessToken;
+  String? _refreshToken;
   UserResponse? _user;
 
   bool get restoring => _restoring;
   bool get busy => _busy;
-  bool get isAuthenticated => _token != null && _user != null;
-  String? get token => _token;
+  bool get isAuthenticated => _accessToken != null && _user != null;
+  String? get token => _accessToken;
+  String? get refreshToken => _refreshToken;
   UserResponse? get user => _user;
 
   Future<void> waitUntilReady({
@@ -59,23 +60,25 @@ class AuthController extends ChangeNotifier {
     _restoring = true;
     notifyListeners();
     try {
-      final raw = await _storage.readSession();
-      if (raw != null && raw.isNotEmpty) {
-        final json = asMap(jsonDecode(raw));
-        final token = readNullableString(json, 'token');
-        final userJson = asMap(json['user']);
-        if (token != null && userJson.isNotEmpty) {
-          _applySession(token, UserResponse.fromJson(userJson));
-          try {
-            await refreshProfile();
-          } on ApiException catch (error) {
-            if (error.statusCode == 401 || error.statusCode == 403) {
+      final session = await _storage.readSession();
+      if (session != null) {
+        _applySession(
+          session.accessToken,
+          session.user,
+          refreshToken: session.refreshToken,
+        );
+        try {
+          await refreshProfile();
+        } on ApiException catch (error) {
+          if (error.statusCode == 401 || error.statusCode == 403) {
+            final refreshed = await _refreshAccessToken();
+            if (!refreshed) {
               await logout();
-            } else {
-              debugPrint(
-                '[auth] profile refresh failed during restore; keeping cached session: ${error.message}',
-              );
             }
+          } else {
+            debugPrint(
+              '[auth] profile refresh failed during restore; keeping cached session: ${error.message}',
+            );
           }
         }
       }
@@ -91,7 +94,11 @@ class AuthController extends ChangeNotifier {
   Future<void> login({required String email, required String password}) async {
     await _runBusy(() async {
       final auth = await _authApi.login(email: email, password: password);
-      await _persistSession(auth.token, auth.user);
+      await _persistSession(
+        accessToken: auth.token,
+        refreshToken: auth.refreshToken,
+        user: auth.user,
+      );
     });
   }
 
@@ -107,39 +114,94 @@ class AuthController extends ChangeNotifier {
         password: password,
       );
       final auth = await _authApi.login(email: email, password: password);
-      await _persistSession(auth.token, auth.user);
+      await _persistSession(
+        accessToken: auth.token,
+        refreshToken: auth.refreshToken,
+        user: auth.user,
+      );
     });
   }
 
   Future<void> refreshProfile() async {
-    if (_token == null) return;
+    if (_accessToken == null) return;
     final user = await _authApi.me();
     _user = user;
     await _storage.writeSession(
-      jsonEncode({'token': _token, 'user': user.toJson()}),
+      StoredSession(
+        accessToken: _accessToken!,
+        refreshToken: _refreshToken,
+        user: user,
+      ),
     );
     notifyListeners();
   }
 
   Future<void> logout() async {
-    _token = null;
+    final refreshToken = _refreshToken;
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      try {
+        await _authApi.logout(refreshToken: refreshToken);
+      } catch (error) {
+        debugPrint('[auth] remote logout failed: $error');
+      }
+    }
+    _accessToken = null;
+    _refreshToken = null;
     _user = null;
     _apiClient.setToken(null);
     await _storage.clearSession();
     notifyListeners();
   }
 
-  Future<void> _persistSession(String token, UserResponse user) async {
-    _applySession(token, user);
+  Future<bool> _refreshAccessToken() async {
+    final refreshToken = _refreshToken;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      return false;
+    }
+    try {
+      final auth = await _authApi.refresh(refreshToken);
+      await _persistSession(
+        accessToken: auth.token,
+        refreshToken: auth.refreshToken,
+        user: auth.user,
+      );
+      return true;
+    } on ApiException catch (error) {
+      if (error.statusCode == 401 || error.statusCode == 403) {
+        return false;
+      }
+      debugPrint('[auth] access token refresh failed: ${error.message}');
+      return false;
+    } catch (error) {
+      debugPrint('[auth] access token refresh failed: $error');
+      return false;
+    }
+  }
+
+  Future<void> _persistSession({
+    required String accessToken,
+    required String? refreshToken,
+    required UserResponse user,
+  }) async {
+    _applySession(accessToken, user, refreshToken: refreshToken);
     await _storage.writeSession(
-      jsonEncode({'token': token, 'user': user.toJson()}),
+      StoredSession(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        user: user,
+      ),
     );
   }
 
-  void _applySession(String token, UserResponse user) {
-    _token = token;
+  void _applySession(
+    String accessToken,
+    UserResponse user, {
+    String? refreshToken,
+  }) {
+    _accessToken = accessToken;
+    _refreshToken = refreshToken;
     _user = user;
-    _apiClient.setToken(token);
+    _apiClient.setToken(accessToken);
     notifyListeners();
   }
 
