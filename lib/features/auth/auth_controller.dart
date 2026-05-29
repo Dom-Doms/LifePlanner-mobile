@@ -86,7 +86,7 @@ class AuthController extends ChangeNotifier {
           }
         }
         if (isAuthenticated) {
-          await _mobilePush?.registerCurrentDevice();
+          await _registerMobilePush();
         }
       }
     } catch (error) {
@@ -106,7 +106,7 @@ class AuthController extends ChangeNotifier {
         refreshToken: auth.refreshToken,
         user: auth.user,
       );
-      await _mobilePush?.registerCurrentDevice();
+      await _registerMobilePush();
     });
   }
 
@@ -127,7 +127,7 @@ class AuthController extends ChangeNotifier {
         refreshToken: auth.refreshToken,
         user: auth.user,
       );
-      await _mobilePush?.registerCurrentDevice();
+      await _registerMobilePush();
     });
   }
 
@@ -147,7 +147,11 @@ class AuthController extends ChangeNotifier {
 
   Future<void> logout() async {
     final refreshToken = _refreshToken;
-    await _mobilePush?.deleteCurrentTokenOnLogout();
+    try {
+      await _mobilePush?.deleteCurrentTokenOnLogout();
+    } catch (error) {
+      debugPrint('[auth] mobile push unregister failed: $error');
+    }
     if (refreshToken != null && refreshToken.isNotEmpty) {
       try {
         await _authApi.logout(refreshToken: refreshToken);
@@ -213,6 +217,14 @@ class AuthController extends ChangeNotifier {
     _user = user;
     _apiClient.setToken(accessToken);
     notifyListeners();
+  }
+
+  Future<void> _registerMobilePush() async {
+    try {
+      await _mobilePush?.registerCurrentDevice();
+    } catch (error) {
+      debugPrint('[auth] mobile push register failed: $error');
+    }
   }
 
   Future<void> _runBusy(Future<void> Function() action) async {
